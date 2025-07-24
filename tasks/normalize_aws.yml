@@ -1,0 +1,32 @@
+---
+# tasks/normalize_aws.yml - AWS data normalization tasks
+
+- name: Normalize AWS security groups
+  set_fact:
+    normalized_sgs: "{{ aws_raw_sgs.security_groups | map('normalize_aws_sg') | list }}"
+
+- name: Normalize AWS instances
+  set_fact:
+    normalized_instances: "{{ aws_raw_instances.instances | map('normalize_aws_instance') | list }}"
+  when: 
+    - osggrapherShowInstances
+    - aws_raw_instances is defined
+    - aws_raw_instances.instances is defined
+
+- name: Normalize AWS network interfaces
+  set_fact:
+    normalized_interfaces: "{{ aws_raw_interfaces.network_interfaces | map('normalize_aws_interface') | list }}"
+  when: 
+    - osggrapherShowInterfaces
+    - aws_raw_interfaces is defined
+    - aws_raw_interfaces.network_interfaces is defined
+
+- name: Set default empty instances list for AWS
+  set_fact:
+    normalized_instances: []
+  when: not osggrapherShowInstances or aws_raw_instances is not defined
+
+- name: Set default empty interfaces list for AWS
+  set_fact:
+    normalized_interfaces: []
+  when: not osggrapherShowInterfaces or aws_raw_interfaces is not defined

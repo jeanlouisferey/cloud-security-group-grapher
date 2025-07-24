@@ -1,0 +1,14 @@
+galaxy_info:
+  author: Jean-Louis FEREY
+  description: This ansible role gets information from cloud providers (OpenStack, AWS) and generate a graphical representation of security groups
+  license: license GPLv3
+
+  min_ansible_version: 2.9
+
+  galaxy_tags: 
+    - cloud
+    - openstack
+    - aws
+    - security-group
+    - graphviz
+    - multi-cloud

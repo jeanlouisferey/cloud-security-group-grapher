@@ -1,0 +1,47 @@
+---
+# Test playbook for cloud-securitygroup-grapher role with OpenStack
+- name: Test cloud-securitygroup-grapher role with OpenStack
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # OpenStack configuration - CUSTOMIZE THESE VALUES
+    cloud_name: "testcloud"  # Name from your clouds.yaml
+    
+  tasks:
+    - name: Generate security groups visualization (OpenStack)
+      include_role:
+        name: cloud-securitygroup-grapher
+      vars:
+        osggrapherCloudProvider: openstack
+        osggrapherCloudInfra: "{{ cloud_name }}"
+        osggrapherShowInstances: true
+        osggrapherShowDefault: false
+        osggrapherFilter: "sgtest"
+        osggrapherRenderCsvFile: true
+        osggrapherRenderMdFile: true
+        osggrapherDotFileToRender: "./openstack-test.dot"
+        osggrapherFileToRender: "./openstack-test.png"
+        osggrapherCsvFileToRender: "./openstack-test.csv"
+        osggrapherMdFileToRender: "./openstack-test.md"
+
+    - name: Display test results
+      debug:
+        msg: |
+          ========================================
+          OpenStack Test Completed!
+          ========================================
+          
+          Generated files:
+          - openstack-test.dot (Graphviz source)
+          - openstack-test.png (Graphic visualization)
+          - openstack-test.csv (CSV export)
+          - openstack-test.md (Markdown table)
+          
+          Expected visualization:
+          - 3 Security Groups: sgtest-web-sg, sgtest-app-sg, sgtest-db-sg
+          - 3 Instances: sgtest-web-server, sgtest-app-server, sgtest-db-server
+          - Security flows: Internet -> Web -> App -> Database
+          
+          Next: Check the generated PNG file!

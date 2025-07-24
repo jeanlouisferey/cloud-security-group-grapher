@@ -1,0 +1,60 @@
+{# Shared Jinja2 macros for security groups generation #}
+
+{# Macro to process a security rule (normalized multi-cloud) #}
+{% macro format_rule(rule) %}
+    {# Protocol processing #}
+    {% if rule.protocol %}
+        {% set protocol = rule.protocol %}
+    {% else %}
+        {% set protocol = "any" %}
+    {% endif %}
+    
+    {# Port processing - normalized structure #}
+    {% if rule.port_min and rule.port_max %}
+        {% if rule.port_min != rule.port_max %}
+            {% set port_range = rule.port_min|string + "-" + rule.port_max|string %}
+        {% else %}
+            {% set port_range = rule.port_min %}
+        {% endif %}
+    {% else %}
+        {% set port_range = "any" %}
+    {% endif %}
+    
+    {{ caller(rule, protocol, port_range) }}
+{% endmacro %}
+
+{# Macro to safely resolve the remote partner (normalized structure) #}
+{% macro get_remote_partner(rule, sg_lookup) -%}
+    {%- if rule.remote_ip -%}
+        {{- rule.remote_ip -}}
+    {%- elif rule.remote_sg_id -%}
+        {{- sg_lookup.get(rule.remote_sg_id, 'DELETED-SG-' + rule.remote_sg_id) -}}
+    {%- else -%}
+        0.0.0.0/0
+    {%- endif -%}
+{% endmacro %}
+
+{# Macro to check if a security group should be displayed #}
+{% macro should_show_sg(sg, sg_filter, show_default) -%}
+    {%- set filter_match = (sg_filter == "") or sg.name.startswith(sg_filter) -%}
+    {%- set default_check = (sg.name != "default") or show_default -%}
+    {{- filter_match and default_check -}}
+{% endmacro %}
+
+{# Macro to safely get interface IP #}
+{% macro get_interface_ip(interface) -%}
+    {%- if interface.fixed_ips and interface.fixed_ips|length > 0 -%}
+        {{- interface.fixed_ips[0].ip_address -}}
+    {%- else -%}
+        NO-IP
+    {%- endif -%}
+{% endmacro %}
+
+{# Macro to get interface display name #}
+{% macro get_interface_display_name(interface) -%}
+    {%- if interface.name and interface.name != '' -%}
+        {{- interface.name }}: {{ get_interface_ip(interface) -}}
+    {%- else -%}
+        {{- interface.id }}: {{ get_interface_ip(interface) -}}
+    {%- endif -%}
+{% endmacro %}

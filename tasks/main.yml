@@ -1,0 +1,67 @@
+---
+# tasks file for cloud-securitygroup-grapher
+
+# Multi-cloud security groups visualization for OpenStack and AWS
+
+- name: Validate cloud provider
+  assert:
+    that: osggrapherCloudProvider in ['openstack', 'aws']
+    msg: "Supported cloud providers: openstack, aws. Current: {{ osggrapherCloudProvider }}"
+
+- name: Verify if dot is installed
+  shell: "dot -V"
+  ignore_errors: true
+  register: osggraphercmd_out
+
+- name: Alert if dot is not installed
+  assert:
+    that: osggraphercmd_out.rc == 0
+    msg: "dot (from graphviz) has to be installed to use this role"
+
+# === Data Collection Phase ===
+- name: Collect data from cloud provider
+  include_tasks: "collect_{{ osggrapherCloudProvider }}.yml"
+
+# === Data Normalization Phase ===
+- name: Normalize cloud provider data
+  include_tasks: "normalize_{{ osggrapherCloudProvider }}.yml"
+
+# === Data Preparation Phase ===
+- name: Prepare unified data structures
+  set_fact:
+    sg_lookup: "{{ dict(normalized_sgs | map(attribute='id') | zip(normalized_sgs | map(attribute='name'))) }}"
+
+- name: Filter security groups by prefix
+  set_fact:
+    filtered_sgs: "{{ normalized_sgs | selectattr('name', 'match', '^' + (osggrapherFilter | regex_escape) + '.*') | list if osggrapherFilter != '' else normalized_sgs }}"
+
+- name: Set unified instance data variable
+  set_fact:
+    instance_data: "{{ normalized_instances if normalized_instances is defined else [] }}"
+
+- name: Set unified interface data variable  
+  set_fact:
+    interface_data: "{{ normalized_interfaces if normalized_interfaces is defined else [] }}"
+
+# === Visualization Generation Phase ===
+- name: Generate security groups visualization
+  template:
+    src: security_groups.j2
+    dest: "{{ item.dest }}"
+  vars:
+    output_format: "{{ item.format }}"
+    show_instances: "{{ osggrapherShowInstances }}"
+    show_interfaces: "{{ osggrapherShowInterfaces }}"
+    sg_filter: "{{ osggrapherFilter | default('') }}"
+    cloud_provider: "{{ osggrapherCloudProvider }}"
+  loop:
+    - { format: 'dot', dest: "{{ osggrapherDotFileToRender }}" }
+    - { format: 'csv', dest: "{{ osggrapherCsvFileToRender }}", condition: "{{ osggrapherRenderCsvFile }}" }
+    - { format: 'markdown', dest: "{{ osggrapherMdFileToRender }}", condition: "{{ osggrapherRenderMdFile }}" }
+  when: 
+    - (item.format == 'dot') or 
+      (item.format == 'csv' and osggrapherRenderCsvFile) or
+      (item.format == 'markdown' and osggrapherRenderMdFile)
+
+- name: Render graph
+  shell: "dot -Tpng -o{{ osggrapherFileToRender}} {{ osggrapherDotFileToRender }}"

@@ -1,0 +1,223 @@
+---
+# AWS deployment script for testing cloud-securitygroup-grapher
+# Creates a realistic 3-tier architecture: web -> app -> database
+
+- name: Deploy AWS test environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # AWS configuration - CUSTOMIZE THESE VALUES
+    aws_region: "eu-west-1"          # AWS region
+    aws_profile: "default"           # AWS profile from ~/.aws/credentials
+    key_name: "test-key"             # Your EC2 key pair name
+    instance_type: "t3.micro"        # Instance type (Free Tier eligible)
+    ami_id: "ami-0c02fb55956c7d316"  # Amazon Linux 2 AMI (update for your region)
+    
+    # Test environment prefix
+    prefix: "sgtest"
+    
+  tasks:
+    - name: Get default VPC info
+      amazon.aws.ec2_vpc_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          is-default: "true"
+      register: vpc_info
+
+    - name: Set VPC ID
+      set_fact:
+        vpc_id: "{{ vpc_info.vpcs[0].vpc_id }}"
+
+    - name: Create web security group
+      amazon.aws.ec2_group:
+        name: "{{ prefix }}-web-sg"
+        description: "Web server security group - allows HTTP/HTTPS from internet"
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        rules:
+          - proto: tcp
+            ports:
+              - 80
+            cidr_ip: "0.0.0.0/0"
+            rule_desc: "HTTP from internet"
+          - proto: tcp
+            ports:
+              - 443
+            cidr_ip: "0.0.0.0/0"
+            rule_desc: "HTTPS from internet"
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: "0.0.0.0/0"
+            rule_desc: "SSH access"
+        tags:
+          Name: "{{ prefix }}-web-sg"
+          Tier: "web"
+          Environment: "test"
+        state: present
+      register: web_sg
+
+    - name: Create app security group
+      amazon.aws.ec2_group:
+        name: "{{ prefix }}-app-sg"
+        description: "Application server security group - allows access from web tier"
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        rules:
+          - proto: tcp
+            ports:
+              - 8080
+            group_id: "{{ web_sg.group_id }}"
+            rule_desc: "API access from web tier"
+          - proto: tcp
+            ports:
+              - 8443
+            group_id: "{{ web_sg.group_id }}"
+            rule_desc: "Secure API access from web tier"
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: "0.0.0.0/0"
+            rule_desc: "SSH access"
+        tags:
+          Name: "{{ prefix }}-app-sg"
+          Tier: "app"
+          Environment: "test"
+        state: present
+      register: app_sg
+
+    - name: Create database security group
+      amazon.aws.ec2_group:
+        name: "{{ prefix }}-db-sg"
+        description: "Database security group - allows access from app tier only"
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        rules:
+          - proto: tcp
+            ports:
+              - 3306
+            group_id: "{{ app_sg.group_id }}"
+            rule_desc: "MySQL access from app tier"
+          - proto: tcp
+            ports:
+              - 5432
+            group_id: "{{ app_sg.group_id }}"
+            rule_desc: "PostgreSQL access from app tier"
+          - proto: tcp
+            ports:
+              - 6379
+            group_id: "{{ app_sg.group_id }}"
+            rule_desc: "Redis access from app tier"
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: "0.0.0.0/0"
+            rule_desc: "SSH access"
+        tags:
+          Name: "{{ prefix }}-db-sg"
+          Tier: "database"
+          Environment: "test"
+        state: present
+      register: db_sg
+
+    - name: Get subnet info for instance placement
+      amazon.aws.ec2_subnet_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          vpc-id: "{{ vpc_id }}"
+          default-for-az: "true"
+      register: subnet_info
+
+    - name: Launch web server instance
+      amazon.aws.ec2_instance:
+        name: "{{ prefix }}-web-server"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_id }}"
+        key_name: "{{ key_name }}"
+        vpc_subnet_id: "{{ subnet_info.subnets[0].subnet_id }}"
+        security_groups:
+          - "{{ web_sg.group_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        tags:
+          Name: "{{ prefix }}-web-server"
+          Role: "webserver"
+          Tier: "frontend"
+          Environment: "test"
+        state: present
+        wait: true
+        wait_timeout: 300
+      register: web_instance
+
+    - name: Launch app server instance
+      amazon.aws.ec2_instance:
+        name: "{{ prefix }}-app-server"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_id }}"
+        key_name: "{{ key_name }}"
+        vpc_subnet_id: "{{ subnet_info.subnets[0].subnet_id }}"
+        security_groups:
+          - "{{ app_sg.group_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        tags:
+          Name: "{{ prefix }}-app-server"
+          Role: "appserver"
+          Tier: "backend"
+          Environment: "test"
+        state: present
+        wait: true
+        wait_timeout: 300
+      register: app_instance
+
+    - name: Launch database server instance
+      amazon.aws.ec2_instance:
+        name: "{{ prefix }}-db-server"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_id }}"
+        key_name: "{{ key_name }}"
+        vpc_subnet_id: "{{ subnet_info.subnets[0].subnet_id }}"
+        security_groups:
+          - "{{ db_sg.group_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        tags:
+          Name: "{{ prefix }}-db-server"
+          Role: "database"
+          Tier: "data"
+          Environment: "test"
+        state: present
+        wait: true
+        wait_timeout: 300
+      register: db_instance
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          ========================================
+          AWS Test Environment Deployed!
+          ========================================
+          
+          Security Groups Created:
+          - {{ prefix }}-web-sg ({{ web_sg.group_id }}) - HTTP/HTTPS from internet
+          - {{ prefix }}-app-sg ({{ app_sg.group_id }}) - API access from web tier  
+          - {{ prefix }}-db-sg ({{ db_sg.group_id }}) - DB access from app tier
+          
+          Instances Created:
+          - {{ prefix }}-web-server ({{ web_instance.instances[0].instance_id }}) - web tier
+          - {{ prefix }}-app-server ({{ app_instance.instances[0].instance_id }}) - app tier
+          - {{ prefix }}-db-server ({{ db_instance.instances[0].instance_id }}) - database tier
+          
+          VPC: {{ vpc_id }}
+          Region: {{ aws_region }}
+          
+          Next steps:
+          1. Test the role: ansible-playbook tests/test-aws-role.yml
+          2. Cleanup: ansible-playbook tests/cleanup-aws.yml

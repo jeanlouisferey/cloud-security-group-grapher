@@ -1,0 +1,32 @@
+---
+# tasks/normalize_openstack.yml - OpenStack data normalization tasks
+
+- name: Normalize OpenStack security groups
+  set_fact:
+    normalized_sgs: "{{ openstack_raw_sgs.security_groups | map('normalize_openstack_sg') | list }}"
+
+- name: Normalize OpenStack instances
+  set_fact:
+    normalized_instances: "{{ openstack_raw_instances.openstack_servers | map('normalize_openstack_instance') | list }}"
+  when: 
+    - osggrapherShowInstances
+    - openstack_raw_instances is defined
+    - openstack_raw_instances.openstack_servers is defined
+
+- name: Normalize OpenStack network interfaces
+  set_fact:
+    normalized_interfaces: "{{ openstack_raw_interfaces.openstack_ports | map('normalize_openstack_interface') | list }}"
+  when: 
+    - osggrapherShowInterfaces
+    - openstack_raw_interfaces is defined
+    - openstack_raw_interfaces.openstack_ports is defined
+
+- name: Set default empty instances list for OpenStack
+  set_fact:
+    normalized_instances: []
+  when: not osggrapherShowInstances or openstack_raw_instances is not defined
+
+- name: Set default empty interfaces list for OpenStack
+  set_fact:
+    normalized_interfaces: []
+  when: not osggrapherShowInterfaces or openstack_raw_interfaces is not defined

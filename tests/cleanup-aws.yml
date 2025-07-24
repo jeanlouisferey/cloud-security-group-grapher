@@ -1,0 +1,79 @@
+---
+# Cleanup script for AWS test environment
+- name: Cleanup AWS test environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # AWS configuration - MUST MATCH deploy-aws.yml
+    aws_region: "eu-west-1"
+    aws_profile: "default"
+    prefix: "sgtest"
+    
+  tasks:
+    - name: Get test instances info
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          "tag:Name": "{{ prefix }}-*"
+          instance-state-name: ["running", "stopped", "stopping"]
+      register: test_instances
+
+    - name: Terminate test instances
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        instance_ids: "{{ test_instances.instances | map(attribute='instance_id') | list }}"
+        state: absent
+        wait: true
+        wait_timeout: 300
+      when: test_instances.instances | length > 0
+      ignore_errors: true
+
+    - name: Get test security groups
+      amazon.aws.ec2_group_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          group-name: "{{ prefix }}-*"
+      register: test_sgs
+
+    - name: Delete test security groups
+      amazon.aws.ec2_group:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        group_id: "{{ item.group_id }}"
+        state: absent
+      loop: "{{ test_sgs.security_groups }}"
+      ignore_errors: true
+      # Note: May need to wait for instances to be fully terminated first
+
+    - name: Remove generated test files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "./aws-test.dot"
+        - "./aws-test.png"
+        - "./aws-test.csv"
+        - "./aws-test.md"
+      ignore_errors: true
+
+    - name: Display cleanup summary
+      debug:
+        msg: |
+          ========================================
+          AWS Cleanup Completed!
+          ========================================
+          
+          Removed:
+          - All test instances ({{ prefix }}-*)
+          - All test security groups ({{ prefix }}-*-sg)
+          - Generated visualization files
+          
+          Note: Security group deletion may take a few minutes
+          after instance termination. Re-run if needed.
+          
+          Environment cleaned up successfully.

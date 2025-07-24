@@ -1,0 +1,200 @@
+---
+# OpenStack deployment script for testing cloud-securitygroup-grapher
+# Creates a realistic 3-tier architecture: web -> app -> database
+
+- name: Deploy OpenStack test environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # OpenStack configuration - CUSTOMIZE THESE VALUES
+    cloud_name: "testcloud"  # Name from your clouds.yaml
+    key_name: "test-key"     # Your SSH key name
+    flavor: "s1-2"           # Instance flavor (adjust for your cloud)
+    image: "Ubuntu 22.04"    # OS image name (adjust for your cloud)
+    network: "Ext-Net"       # External network name (adjust for your cloud)
+    
+    # Test environment prefix
+    prefix: "sgtest"
+    
+  tasks:
+    - name: Create web security group
+      openstack.cloud.security_group:
+        cloud: "{{ cloud_name }}"
+        name: "{{ prefix }}-web-sg"
+        description: "Web server security group - allows HTTP/HTTPS from internet"
+        state: present
+        
+    - name: Add HTTP rule to web security group
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-web-sg"
+        protocol: tcp
+        port_range_min: 80
+        port_range_max: 80
+        remote_ip_prefix: "0.0.0.0/0"
+        direction: ingress
+        
+    - name: Add HTTPS rule to web security group
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-web-sg"
+        protocol: tcp
+        port_range_min: 443
+        port_range_max: 443
+        remote_ip_prefix: "0.0.0.0/0"
+        direction: ingress
+        
+    - name: Add SSH rule to web security group
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-web-sg"
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: "0.0.0.0/0"
+        direction: ingress
+
+    - name: Create app security group
+      openstack.cloud.security_group:
+        cloud: "{{ cloud_name }}"
+        name: "{{ prefix }}-app-sg"
+        description: "Application server security group - allows access from web tier"
+        state: present
+        
+    - name: Add API rule to app security group (from web tier)
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-app-sg"
+        protocol: tcp
+        port_range_min: 8080
+        port_range_max: 8080
+        remote_group_id: "{{ prefix }}-web-sg"
+        direction: ingress
+        
+    - name: Add SSH rule to app security group
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-app-sg"
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: "0.0.0.0/0"
+        direction: ingress
+
+    - name: Create database security group
+      openstack.cloud.security_group:
+        cloud: "{{ cloud_name }}"
+        name: "{{ prefix }}-db-sg"
+        description: "Database security group - allows access from app tier only"
+        state: present
+        
+    - name: Add MySQL rule to database security group (from app tier)
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-db-sg"
+        protocol: tcp
+        port_range_min: 3306
+        port_range_max: 3306
+        remote_group_id: "{{ prefix }}-app-sg"
+        direction: ingress
+        
+    - name: Add PostgreSQL rule to database security group (from app tier)
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-db-sg"
+        protocol: tcp
+        port_range_min: 5432
+        port_range_max: 5432
+        remote_group_id: "{{ prefix }}-app-sg"
+        direction: ingress
+        
+    - name: Add SSH rule to database security group
+      openstack.cloud.security_group_rule:
+        cloud: "{{ cloud_name }}"
+        security_group: "{{ prefix }}-db-sg"
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: "0.0.0.0/0"
+        direction: ingress
+
+    - name: Create web server instance
+      openstack.cloud.server:
+        cloud: "{{ cloud_name }}"
+        name: "{{ prefix }}-web-server"
+        flavor: "{{ flavor }}"
+        image: "{{ image }}"
+        key_name: "{{ key_name }}"
+        network: "{{ network }}"
+        security_groups:
+          - "{{ prefix }}-web-sg"
+        meta:
+          role: "webserver"
+          tier: "frontend"
+        state: present
+
+    - name: Create app server instance
+      openstack.cloud.server:
+        cloud: "{{ cloud_name }}"
+        name: "{{ prefix }}-app-server"
+        flavor: "{{ flavor }}"
+        image: "{{ image }}"
+        key_name: "{{ key_name }}"
+        network: "{{ network }}"
+        security_groups:
+          - "{{ prefix }}-app-sg"
+        meta:
+          role: "appserver"
+          tier: "backend"
+        state: present
+
+    - name: Create database server instance
+      openstack.cloud.server:
+        cloud: "{{ cloud_name }}"
+        name: "{{ prefix }}-db-server"
+        flavor: "{{ flavor }}"
+        image: "{{ image }}"
+        key_name: "{{ key_name }}"
+        network: "{{ network }}"
+        security_groups:
+          - "{{ prefix }}-db-sg"
+        meta:
+          role: "database"
+          tier: "data"
+        state: present
+
+    - name: Wait for instances to be active
+      openstack.cloud.server_info:
+        cloud: "{{ cloud_name }}"
+        server: "{{ item }}"
+      register: server_info
+      until: server_info.openstack_servers[0].status == "ACTIVE"
+      retries: 30
+      delay: 10
+      loop:
+        - "{{ prefix }}-web-server"
+        - "{{ prefix }}-app-server"
+        - "{{ prefix }}-db-server"
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          ========================================
+          OpenStack Test Environment Deployed!
+          ========================================
+          
+          Security Groups Created:
+          - {{ prefix }}-web-sg (HTTP/HTTPS from internet)
+          - {{ prefix }}-app-sg (API access from web tier)  
+          - {{ prefix }}-db-sg (DB access from app tier)
+          
+          Instances Created:
+          - {{ prefix }}-web-server (web tier)
+          - {{ prefix }}-app-server (app tier)
+          - {{ prefix }}-db-server (database tier)
+          
+          Next steps:
+          1. Test the role: ansible-playbook tests/test-openstack-role.yml
+          2. Cleanup: ansible-playbook tests/cleanup-openstack.yml

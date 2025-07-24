@@ -1,0 +1,49 @@
+---
+# Test playbook for cloud-securitygroup-grapher role with AWS
+- name: Test cloud-securitygroup-grapher role with AWS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # AWS configuration - CUSTOMIZE THESE VALUES
+    aws_region: "eu-west-1"    # AWS region
+    aws_profile: "default"     # AWS profile
+    
+  tasks:
+    - name: Generate security groups visualization (AWS)
+      include_role:
+        name: cloud-securitygroup-grapher
+      vars:
+        osggrapherCloudProvider: aws
+        osggrapherAwsRegion: "{{ aws_region }}"
+        osggrapherAwsProfile: "{{ aws_profile }}"
+        osggrapherShowInstances: true
+        osggrapherShowDefault: false
+        osggrapherFilter: "sgtest"
+        osggrapherRenderCsvFile: true
+        osggrapherRenderMdFile: true
+        osggrapherDotFileToRender: "./aws-test.dot"
+        osggrapherFileToRender: "./aws-test.png"
+        osggrapherCsvFileToRender: "./aws-test.csv"
+        osggrapherMdFileToRender: "./aws-test.md"
+
+    - name: Display test results
+      debug:
+        msg: |
+          ========================================
+          AWS Test Completed!
+          ========================================
+          
+          Generated files:
+          - aws-test.dot (Graphviz source)
+          - aws-test.png (Graphic visualization)
+          - aws-test.csv (CSV export)
+          - aws-test.md (Markdown table)
+          
+          Expected visualization:
+          - 3 Security Groups: sgtest-web-sg, sgtest-app-sg, sgtest-db-sg
+          - 3 Instances: sgtest-web-server, sgtest-app-server, sgtest-db-server
+          - Security flows: Internet -> Web -> App -> Database
+          
+          Next: Check the generated PNG file!

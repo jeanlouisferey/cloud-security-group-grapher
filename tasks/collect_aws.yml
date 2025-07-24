@@ -1,0 +1,38 @@
+---
+# tasks/collect_aws.yml - AWS data collection tasks
+
+- name: Validate AWS configuration
+  assert:
+    that: 
+      - osggrapherAwsRegion != ""
+    msg: "osggrapherAwsRegion must be defined when using AWS provider"
+
+- name: Get AWS security groups
+  amazon.aws.ec2_group_info:
+    region: "{{ osggrapherAwsRegion }}"
+    profile: "{{ osggrapherAwsProfile }}"
+    filters:
+      "tag:Name": "{{ osggrapherFilter + '*' if osggrapherFilter != '' else omit }}"
+  register: aws_raw_sgs
+  tags: security_groups
+
+- name: Get AWS instances information
+  amazon.aws.ec2_instance_info:
+    region: "{{ osggrapherAwsRegion }}"
+    profile: "{{ osggrapherAwsProfile }}"
+    filters:
+      "tag:Name": "{{ osggrapherFilter + '*' if osggrapherFilter != '' else omit }}"
+      instance-state-name: ["running", "stopped"]
+  register: aws_raw_instances
+  tags: instances
+  when: osggrapherShowInstances
+
+- name: Get AWS network interfaces information
+  amazon.aws.ec2_eni_info:
+    region: "{{ osggrapherAwsRegion }}"
+    profile: "{{ osggrapherAwsProfile }}"
+    filters:
+      "tag:Name": "{{ osggrapherFilter + '*' if osggrapherFilter != '' else omit }}"
+  register: aws_raw_interfaces
+  tags: interfaces
+  when: osggrapherShowInterfaces

@@ -1,0 +1,29 @@
+---
+# tasks/collect_openstack.yml - OpenStack data collection tasks
+
+- name: Validate OpenStack configuration
+  assert:
+    that: 
+      - osggrapherCloudInfra != ""
+    msg: "osggrapherCloudInfra must be defined when using OpenStack provider"
+
+- name: Get OpenStack instances information
+  openstack.cloud.server_info:
+    cloud: "{{ osggrapherCloudInfra }}"
+    server: "{{ osggrapherFilter + '*' if osggrapherFilter != '' else omit }}"
+  register: openstack_raw_instances
+  tags: instances
+  when: osggrapherShowInstances
+
+- name: Get OpenStack interfaces information
+  openstack.cloud.port_info:
+    cloud: "{{ osggrapherCloudInfra }}"
+  register: openstack_raw_interfaces
+  tags: interfaces
+  when: osggrapherShowInterfaces
+
+- name: Get OpenStack security groups and rules
+  openstack.cloud.security_group_info:
+    cloud: "{{ osggrapherCloudInfra }}"
+  register: openstack_raw_sgs
+  tags: security_groups

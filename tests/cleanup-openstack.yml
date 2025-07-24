@@ -1,0 +1,61 @@
+---
+# Cleanup script for OpenStack test environment
+- name: Cleanup OpenStack test environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # OpenStack configuration - MUST MATCH deploy-openstack.yml
+    cloud_name: "testcloud"
+    prefix: "sgtest"
+    
+  tasks:
+    - name: Delete test instances
+      openstack.cloud.server:
+        cloud: "{{ cloud_name }}"
+        name: "{{ item }}"
+        state: absent
+        wait: true
+        timeout: 300
+      loop:
+        - "{{ prefix }}-web-server"
+        - "{{ prefix }}-app-server"
+        - "{{ prefix }}-db-server"
+      ignore_errors: true
+
+    - name: Delete security groups
+      openstack.cloud.security_group:
+        cloud: "{{ cloud_name }}"
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ prefix }}-web-sg"
+        - "{{ prefix }}-app-sg"
+        - "{{ prefix }}-db-sg"
+      ignore_errors: true
+
+    - name: Remove generated test files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "./openstack-test.dot"
+        - "./openstack-test.png"
+        - "./openstack-test.csv"
+        - "./openstack-test.md"
+      ignore_errors: true
+
+    - name: Display cleanup summary
+      debug:
+        msg: |
+          ========================================
+          OpenStack Cleanup Completed!
+          ========================================
+          
+          Removed:
+          - All test instances ({{ prefix }}-*)
+          - All test security groups ({{ prefix }}-*-sg)
+          - Generated visualization files
+          
+          Environment cleaned up successfully.

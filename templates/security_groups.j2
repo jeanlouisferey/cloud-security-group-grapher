@@ -1,0 +1,96 @@
+{# Unified multi-cloud template for security groups generation in all formats #}
+{% from 'macros.j2' import format_rule, get_remote_partner, should_show_sg, get_interface_display_name %}
+
+{# DOT format for Graphviz #}
+{% if output_format == 'dot' %}
+digraph G {
+  graph [fontname = "helvetica"];
+  node [fontname = "helvetica"];
+  edge [fontname = "helvetica"];
+  rankdir={{ osggrapherRankdir }};
+
+{% if show_instances %}
+{%   for sg in filtered_sgs %}
+{%     if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
+  "{{ sg.name }}"
+  [
+      shape = record
+      label = <<table border="0" cellspacing="0">
+                  <tr><td ><b>{{ sg.name }}</b></td></tr>
+                  <tr><td ><i>{{ "Instances" if cloud_provider == "aws" else "Servers" }}</i></td></tr>
+{%       for instance in instance_data %}
+{%         if sg.id in instance.security_groups or sg.name in instance.security_groups %}
+                  <tr><td border="1" bgcolor="gray">{{ instance.name }}</td></tr>
+{%         endif %}
+{%       endfor %}
+              </table>>
+  ]
+{%     endif %}
+{%   endfor %}
+{% endif %}
+
+{% if show_interfaces %}
+{%   for sg in filtered_sgs %}
+{%     if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
+  "{{ sg.name }}"
+  [
+      shape = record
+      label = <<table border="0" cellspacing="0">
+                  <tr><td ><b>{{ sg.name }}</b></td></tr>
+                  <tr><td ><i>{{ "ENIs" if cloud_provider == "aws" else "Interfaces" }}</i></td></tr>
+{%       for interface in interface_data %}
+{%         if sg.id in interface.security_groups %}
+                  <tr><td border="1" bgcolor="gray">{{ get_interface_display_name(interface) }}</td></tr>
+{%         endif %}
+{%       endfor %}
+              </table>>
+  ]
+{%     endif %}
+{%   endfor %}
+{% endif %}
+
+{% for sg in filtered_sgs %}
+{%   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
+{%     for rule in sg.rules %}
+{%       call format_rule(rule) %}
+{%         if rule.direction == "egress" %}
+{%           if osggrapherShowEgressAnyAnyRules or (rule.remote_ip or rule.remote_sg_id) %}
+  "{{ get_remote_partner(rule, sg_lookup) }}" -> "{{ sg.name }}" [arrowhead=inv,color=red,label="OUT: {{ rule.ethertype }} {{ protocol }} {{ port_range }}"];
+{%           endif %}
+{%         else %}
+  "{{ get_remote_partner(rule, sg_lookup) }}" -> "{{ sg.name }}" [arrowhead=normal,color=blue,label="IN: {{ rule.ethertype }} {{ protocol }} {{ port_range }}"];
+{%         endif %}
+{%       endcall %}
+{%     endfor %}
+{%   endif %}
+{% endfor %}
+}
+
+{# Format CSV #}
+{% elif output_format == 'csv' %}
+"Security group";"Direction";"IP type";"Protocol";"Port";"Remote partner";"Provider"
+{% for sg in filtered_sgs | sort(attribute='name') %}
+{%   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
+{%     for rule in sg.rules %}
+{%       call format_rule(rule) %}
+"{{ sg.name }}";"{{ rule.direction}}";"{{ rule.ethertype }}";"{{ protocol }}";"{{ port_range }}";"{{ get_remote_partner(rule, sg_lookup) }}";"{{ cloud_provider }}"
+{%       endcall %}
+{%     endfor %}
+{%   endif %}
+{% endfor %}
+
+{# Format Markdown #}
+{% elif output_format == 'markdown' %}
+| Security group | Direction | IP type | Protocol | Port | Remote partner | Provider |
+| -------------- | --------- | ------- | -------- | ---- | -------------- | -------- |
+{% for sg in filtered_sgs | sort(attribute='name') %}
+{%   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
+{%     for rule in sg.rules %}
+{%       call format_rule(rule) %}
+| {{ sg.name }} | {{ rule.direction}} | {{ rule.ethertype }} | {{ protocol }} | {{ port_range }} | {{ get_remote_partner(rule, sg_lookup) }} | {{ cloud_provider }} |
+{%       endcall %}
+{%     endfor %}
+{%   endif %}
+{% endfor %}
+
+{% endif %}
