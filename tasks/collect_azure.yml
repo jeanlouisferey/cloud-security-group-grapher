@@ -1,0 +1,56 @@
+---
+# tasks/collect_azure.yml - Azure data collection for cloud-securitygroup-grapher
+
+- name: Validate Azure mandatory variables
+  assert:
+    that:
+      - osggrapherAzureSubscriptionId != ""
+      - osggrapherAzureResourceGroup != ""
+    fail_msg: "Azure subscription ID and resource group are mandatory when using Azure provider"
+
+- name: Get Azure Network Security Groups
+  azure.azcollection.azure_rm_securitygroup_info:
+    resource_group: "{{ osggrapherAzureResourceGroup }}"
+    subscription_id: "{{ osggrapherAzureSubscriptionId }}"
+    tenant: "{{ osggrapherAzureTenantId | default(omit) }}"
+    client_id: "{{ osggrapherAzureClientId | default(omit) }}"
+    secret: "{{ osggrapherAzureSecret | default(omit) }}"
+  register: azure_raw_nsgs
+  no_log: "{{ osggrapherAzureSecret != '' }}"
+
+- name: Get Azure Virtual Machines
+  azure.azcollection.azure_rm_virtualmachine_info:
+    resource_group: "{{ osggrapherAzureResourceGroup }}"
+    subscription_id: "{{ osggrapherAzureSubscriptionId }}"
+    tenant: "{{ osggrapherAzureTenantId | default(omit) }}"
+    client_id: "{{ osggrapherAzureClientId | default(omit) }}"
+    secret: "{{ osggrapherAzureSecret | default(omit) }}"
+  register: azure_raw_vms
+  when: osggrapherShowInstances
+  no_log: "{{ osggrapherAzureSecret != '' }}"
+
+- name: Get Azure Network Interfaces
+  azure.azcollection.azure_rm_networkinterface_info:
+    resource_group: "{{ osggrapherAzureResourceGroup }}"
+    subscription_id: "{{ osggrapherAzureSubscriptionId }}"
+    tenant: "{{ osggrapherAzureTenantId | default(omit) }}"
+    client_id: "{{ osggrapherAzureClientId | default(omit) }}"
+    secret: "{{ osggrapherAzureSecret | default(omit) }}"
+  register: azure_raw_interfaces
+  when: osggrapherShowInterfaces
+  no_log: "{{ osggrapherAzureSecret != '' }}"
+
+- name: Debug Azure NSGs collected
+  debug:
+    msg: "Found {{ azure_raw_nsgs.securitygroups | length }} Azure NSGs"
+  when: azure_raw_nsgs is defined
+
+- name: Debug Azure VMs collected
+  debug:
+    msg: "Found {{ azure_raw_vms.vms | length }} Azure VMs"
+  when: azure_raw_vms is defined and osggrapherShowInstances
+
+- name: Debug Azure NICs collected
+  debug:
+    msg: "Found {{ azure_raw_interfaces.networkinterfaces | length }} Azure NICs"
+  when: azure_raw_interfaces is defined and osggrapherShowInterfaces

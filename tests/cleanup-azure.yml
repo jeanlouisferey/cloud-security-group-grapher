@@ -1,0 +1,75 @@
+---
+# Cleanup Azure test environment
+- name: Cleanup Azure test environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # Azure configuration - MUST match deploy-azure.yml values
+    azure_subscription_id: ""                    # Your Azure subscription ID
+    azure_resource_group: "sgtest-rg"           # Resource group name
+    azure_tenant_id: ""                         # Azure AD tenant ID (optional)
+    azure_client_id: ""                         # Service Principal ID (optional)
+    azure_secret: ""                            # Service Principal secret (optional)
+
+  tasks:
+    - name: Validate Azure cleanup variables
+      assert:
+        that:
+          - azure_subscription_id != ""
+          - azure_resource_group != ""
+        fail_msg: "Please set azure_subscription_id and azure_resource_group variables"
+
+    - name: Confirm cleanup action
+      pause:
+        prompt: |
+          
+          ⚠️  WARNING: This will DELETE the entire Azure resource group and ALL resources within it!
+          
+          Resource Group: {{ azure_resource_group }}
+          Subscription: {{ azure_subscription_id }}
+          
+          This action cannot be undone.
+          
+          Press ENTER to continue or Ctrl+C to abort
+
+    - name: Delete Azure resource group (removes all resources)
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ azure_resource_group }}"
+        state: absent
+        force_delete_nonempty: true
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+      no_log: "{{ azure_secret != '' }}"
+      register: cleanup_result
+
+    - name: Remove local test files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "./azure-test.dot"
+        - "./azure-test.png"
+        - "./azure-test.csv"
+        - "./azure-test.md"
+      ignore_errors: true
+
+    - name: Display cleanup summary
+      debug:
+        msg: |
+          Azure test environment cleanup completed!
+          
+          Deleted resources:
+          - Resource Group: {{ azure_resource_group }}
+          - All VMs, NICs, NSGs, VNet, and Public IPs within the resource group
+          
+          Local files removed:
+          - azure-test.dot
+          - azure-test.png
+          - azure-test.csv
+          - azure-test.md
+          
+          💰 Cleanup completed - no further Azure charges for test resources!

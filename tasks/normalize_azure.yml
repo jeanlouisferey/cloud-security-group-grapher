@@ -1,0 +1,51 @@
+---
+# tasks/normalize_azure.yml - Azure data normalization for cloud-securitygroup-grapher
+
+- name: Normalize Azure security groups
+  set_fact:
+    normalized_sgs: "{{ azure_raw_nsgs.securitygroups | azure_nsg_normalizer }}"
+
+- name: Normalize Azure instances
+  set_fact:
+    normalized_instances: "{{ azure_raw_vms.vms | azure_vm_normalizer }}"
+  when: osggrapherShowInstances and azure_raw_vms is defined
+
+- name: Normalize Azure network interfaces
+  set_fact:
+    normalized_interfaces: "{{ azure_raw_interfaces.networkinterfaces | azure_nic_normalizer }}"
+  when: osggrapherShowInterfaces and azure_raw_interfaces is defined
+
+- name: Set cloud provider for templates
+  set_fact:
+    cloud_provider: "azure"
+
+- name: Debug normalized Azure NSGs
+  debug:
+    msg: "Normalized {{ normalized_sgs | length }} Azure NSGs"
+
+- name: Debug normalized Azure instances
+  debug:
+    msg: "Normalized {{ normalized_instances | length }} Azure instances"
+  when: normalized_instances is defined
+
+- name: Debug normalized Azure interfaces
+  debug:
+    msg: "Normalized {{ normalized_interfaces | length }} Azure interfaces"
+  when: normalized_interfaces is defined
+
+- name: Filter security groups by name pattern
+  set_fact:
+    filtered_sgs: "{{ normalized_sgs | selectattr('name', 'match', '^' + osggrapherFilter + '.*') | list if osggrapherFilter != '' else normalized_sgs }}"
+
+- name: Set instance and interface data for templates
+  set_fact:
+    instance_data: "{{ normalized_instances | default([]) }}"
+    interface_data: "{{ normalized_interfaces | default([]) }}"
+
+- name: Create security group lookup dictionary
+  set_fact:
+    sg_lookup: "{{ dict(normalized_sgs | map(attribute='id') | zip(normalized_sgs | map(attribute='name'))) }}"
+
+- name: Apply additional filters
+  set_fact:
+    filtered_sgs: "{{ filtered_sgs | rejectattr('name', 'equalto', 'default') | list if not osggrapherShowDefault else filtered_sgs }}"

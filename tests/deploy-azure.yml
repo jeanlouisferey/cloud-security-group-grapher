@@ -1,0 +1,248 @@
+---
+# Azure test environment deployment for cloud-securitygroup-grapher
+- name: Deploy Azure test environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # Azure configuration - MODIFY THESE VALUES
+    azure_subscription_id: ""                    # Your Azure subscription ID
+    azure_resource_group: "sgtest-rg"           # Resource group name
+    azure_region: "westeurope"                  # Azure region
+    azure_tenant_id: ""                         # Azure AD tenant ID
+    azure_client_id: ""                         # Service Principal ID  
+    azure_secret: ""                            # Service Principal secret
+    
+    # Test infrastructure
+    vnet_name: "sgtest-vnet"
+    vnet_cidr: "10.0.0.0/16"
+    subnet_name: "sgtest-subnet"
+    subnet_cidr: "10.0.1.0/24"
+    
+    # Test VMs
+    vm_size: "Standard_B1s"                     # VM size (free tier eligible)
+    admin_username: "azureuser"
+    ssh_public_key: ""                          # Your SSH public key
+    
+    # Image reference
+    image:
+      offer: "0001-com-ubuntu-server-focal"
+      publisher: "Canonical"
+      sku: "20_04-lts-gen2"
+      version: "latest"
+
+  tasks:
+    - name: Validate Azure variables
+      assert:
+        that:
+          - azure_subscription_id != ""
+          - azure_resource_group != ""
+          - ssh_public_key != ""
+        fail_msg: "Please set azure_subscription_id, azure_resource_group, and ssh_public_key variables"
+
+    - name: Create resource group
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ azure_resource_group }}"
+        location: "{{ azure_region }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+        tags:
+          purpose: "sgtest"
+          environment: "test"
+      no_log: "{{ azure_secret != '' }}"
+
+    - name: Create virtual network
+      azure.azcollection.azure_rm_virtualnetwork:
+        resource_group: "{{ azure_resource_group }}"
+        name: "{{ vnet_name }}"
+        address_prefixes: "{{ vnet_cidr }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+        tags:
+          purpose: "sgtest"
+      no_log: "{{ azure_secret != '' }}"
+
+    - name: Create subnet
+      azure.azcollection.azure_rm_subnet:
+        resource_group: "{{ azure_resource_group }}"
+        virtual_network: "{{ vnet_name }}"
+        name: "{{ subnet_name }}"
+        address_prefix: "{{ subnet_cidr }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+      no_log: "{{ azure_secret != '' }}"
+
+    - name: Create Network Security Groups
+      azure.azcollection.azure_rm_securitygroup:
+        resource_group: "{{ azure_resource_group }}"
+        name: "{{ item.name }}"
+        rules: "{{ item.rules }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+        tags:
+          purpose: "sgtest"
+          tier: "{{ item.tier }}"
+      loop:
+        - name: "sgtest-web-nsg"
+          tier: "web"
+          rules:
+            - name: "AllowSSH"
+              protocol: "Tcp"
+              destination_port_range: "22"
+              source_address_prefix: "*"
+              access: "Allow"
+              priority: 1000
+              direction: "Inbound"
+            - name: "AllowHTTP"
+              protocol: "Tcp"
+              destination_port_range: "80"
+              source_address_prefix: "*"
+              access: "Allow"
+              priority: 1010
+              direction: "Inbound"
+            - name: "AllowHTTPS"
+              protocol: "Tcp"
+              destination_port_range: "443"
+              source_address_prefix: "*"
+              access: "Allow"
+              priority: 1020
+              direction: "Inbound"
+        - name: "sgtest-app-nsg"
+          tier: "app"
+          rules:
+            - name: "AllowSSH"
+              protocol: "Tcp"
+              destination_port_range: "22"
+              source_address_prefix: "*"
+              access: "Allow"
+              priority: 1000
+              direction: "Inbound"
+            - name: "AllowAPIFromWeb"
+              protocol: "Tcp"
+              destination_port_range: "8080"
+              source_address_prefix: "10.0.1.0/24"
+              access: "Allow"
+              priority: 1010
+              direction: "Inbound"
+            - name: "AllowAPISecureFromWeb"
+              protocol: "Tcp"
+              destination_port_range: "8443"
+              source_address_prefix: "10.0.1.0/24"
+              access: "Allow"
+              priority: 1020
+              direction: "Inbound"
+        - name: "sgtest-db-nsg"
+          tier: "database"
+          rules:
+            - name: "AllowSSH"
+              protocol: "Tcp"
+              destination_port_range: "22"
+              source_address_prefix: "*"
+              access: "Allow"
+              priority: 1000
+              direction: "Inbound"
+            - name: "AllowMySQLFromApp"
+              protocol: "Tcp"
+              destination_port_range: "3306"
+              source_address_prefix: "10.0.1.0/24"
+              access: "Allow"
+              priority: 1010
+              direction: "Inbound"
+            - name: "AllowPostgreSQLFromApp"
+              protocol: "Tcp"
+              destination_port_range: "5432"
+              source_address_prefix: "10.0.1.0/24"
+              access: "Allow"
+              priority: 1020
+              direction: "Inbound"
+      no_log: "{{ azure_secret != '' }}"
+
+    - name: Create public IPs for VMs
+      azure.azcollection.azure_rm_publicipaddress:
+        resource_group: "{{ azure_resource_group }}"
+        name: "{{ item }}-pip"
+        allocation_method: "Static"
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+        tags:
+          purpose: "sgtest"
+      loop:
+        - "sgtest-web-server"
+        - "sgtest-app-server"
+        - "sgtest-db-server"
+      no_log: "{{ azure_secret != '' }}"
+
+    - name: Create network interfaces
+      azure.azcollection.azure_rm_networkinterface:
+        resource_group: "{{ azure_resource_group }}"
+        name: "{{ item.name }}-nic"
+        virtual_network: "{{ vnet_name }}"
+        subnet: "{{ subnet_name }}"
+        public_ip_name: "{{ item.name }}-pip"
+        security_group: "{{ item.nsg }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+        tags:
+          purpose: "sgtest"
+          tier: "{{ item.tier }}"
+      loop:
+        - { name: "sgtest-web-server", nsg: "sgtest-web-nsg", tier: "web" }
+        - { name: "sgtest-app-server", nsg: "sgtest-app-nsg", tier: "app" }
+        - { name: "sgtest-db-server", nsg: "sgtest-db-nsg", tier: "database" }
+      no_log: "{{ azure_secret != '' }}"
+
+    - name: Create virtual machines
+      azure.azcollection.azure_rm_virtualmachine:
+        resource_group: "{{ azure_resource_group }}"
+        name: "{{ item.name }}"
+        vm_size: "{{ vm_size }}"
+        admin_username: "{{ admin_username }}"
+        ssh_password_enabled: false
+        ssh_public_keys:
+          - path: "/home/{{ admin_username }}/.ssh/authorized_keys"
+            key_data: "{{ ssh_public_key }}"
+        network_interfaces: "{{ item.name }}-nic"
+        image: "{{ image }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        tenant: "{{ azure_tenant_id | default(omit) }}"
+        client_id: "{{ azure_client_id | default(omit) }}"
+        secret: "{{ azure_secret | default(omit) }}"
+        tags:
+          purpose: "sgtest"
+          tier: "{{ item.tier }}"
+          Name: "{{ item.name }}"
+      loop:
+        - { name: "sgtest-web-server", tier: "web" }
+        - { name: "sgtest-app-server", tier: "app" }
+        - { name: "sgtest-db-server", tier: "database" }
+      no_log: "{{ azure_secret != '' }}"
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          Azure test environment deployed successfully!
+          
+          Resources created:
+          - Resource Group: {{ azure_resource_group }}
+          - Virtual Network: {{ vnet_name }} ({{ vnet_cidr }})
+          - Subnet: {{ subnet_name }} ({{ subnet_cidr }})
+          - Network Security Groups: sgtest-web-nsg, sgtest-app-nsg, sgtest-db-nsg
+          - Virtual Machines: sgtest-web-server, sgtest-app-server, sgtest-db-server
+          
+          Next steps:
+          1. Run: ansible-playbook tests/test-azure-role.yml
+          2. Check generated files: azure-test.*
+          3. Clean up: ansible-playbook tests/cleanup-azure.yml

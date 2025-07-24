@@ -1,12 +1,12 @@
 ---
 # tasks file for cloud-securitygroup-grapher
 
-# Multi-cloud security groups visualization for OpenStack and AWS
+# Multi-cloud security groups visualization for OpenStack, AWS, and Azure
 
 - name: Validate cloud provider
   assert:
-    that: osggrapherCloudProvider in ['openstack', 'aws']
-    msg: "Supported cloud providers: openstack, aws. Current: {{ osggrapherCloudProvider }}"
+    that: osggrapherCloudProvider in ['openstack', 'aws', 'azure']
+    msg: "Supported cloud providers: openstack, aws, azure. Current: {{ osggrapherCloudProvider }}"
 
 - name: Verify if dot is installed
   shell: "dot -V"

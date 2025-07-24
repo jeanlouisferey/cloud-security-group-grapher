@@ -1,0 +1,90 @@
+---
+# Test the cloud-securitygroup-grapher role with Azure
+- name: Test cloud-securitygroup-grapher role with Azure
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # Azure configuration - MUST match deploy-azure.yml values
+    azure_subscription_id: ""                    # Your Azure subscription ID
+    azure_resource_group: "sgtest-rg"           # Resource group name
+    azure_region: "westeurope"                  # Azure region
+    azure_tenant_id: ""                         # Azure AD tenant ID (optional)
+    azure_client_id: ""                         # Service Principal ID (optional)
+    azure_secret: ""                            # Service Principal secret (optional)
+
+  tasks:
+    - name: Validate Azure test variables
+      assert:
+        that:
+          - azure_subscription_id != ""
+          - azure_resource_group != ""
+        fail_msg: "Please set azure_subscription_id and azure_resource_group variables"
+
+    - name: Test cloud-securitygroup-grapher role with Azure
+      include_role:
+        name: cloud-securitygroup-grapher
+      vars:
+        # Azure provider configuration
+        osggrapherCloudProvider: "azure"
+        osggrapherAzureSubscriptionId: "{{ azure_subscription_id }}"
+        osggrapherAzureResourceGroup: "{{ azure_resource_group }}"
+        osggrapherAzureRegion: "{{ azure_region }}"
+        osggrapherAzureTenantId: "{{ azure_tenant_id }}"
+        osggrapherAzureClientId: "{{ azure_client_id }}"
+        osggrapherAzureSecret: "{{ azure_secret }}"
+        
+        # Display options
+        osggrapherShowInstances: true
+        osggrapherShowInterfaces: false
+        osggrapherShowDefault: false
+        osggrapherShowEgressAnyAnyRules: true
+        
+        # Output configuration
+        osggrapherRenderCsvFile: true
+        osggrapherRenderMdFile: true
+        osggrapherRankdir: "LR"
+        
+        # Output files
+        osggrapherDotFileToRender: "./azure-test.dot"
+        osggrapherFileToRender: "./azure-test.png"
+        osggrapherCsvFileToRender: "./azure-test.csv"
+        osggrapherMdFileToRender: "./azure-test.md"
+        
+        # Filtering
+        osggrapherFilter: "sgtest"
+
+    - name: Verify generated files
+      stat:
+        path: "{{ item }}"
+      register: file_check
+      loop:
+        - "./azure-test.dot"
+        - "./azure-test.png"
+        - "./azure-test.csv"
+        - "./azure-test.md"
+
+    - name: Display test results
+      debug:
+        msg: |
+          Azure test completed successfully!
+          
+          Generated files:
+          {% for result in file_check.results %}
+          - {{ result.item }}: {{ 'EXISTS' if result.stat.exists else 'MISSING' }} ({{ result.stat.size | default(0) }} bytes)
+          {% endfor %}
+          
+          Test configuration:
+          - Provider: Azure
+          - Subscription: {{ azure_subscription_id[:8] }}...
+          - Resource Group: {{ azure_resource_group }}
+          - Region: {{ azure_region }}
+          - Show Instances: {{ osggrapherShowInstances }}
+          - Filter: {{ osggrapherFilter }}
+          
+          Expected results:
+          - PNG graph showing 3 NSGs with security flow arrows
+          - CSV file with security rules export
+          - Markdown file with formatted rules table
+          - DOT file with Graphviz source

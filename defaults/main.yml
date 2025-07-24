@@ -2,7 +2,7 @@
 # defaults file for cloud-securitygroup-grapher
 
 # === Cloud Provider Configuration ===
-# Supported providers: openstack, aws
+# Supported providers: openstack, aws, azure
 osggrapherCloudProvider: "openstack"
 
 # OpenStack configuration (when osggrapherCloudProvider: "openstack")
@@ -11,6 +11,14 @@ osggrapherCloudInfra: ""
 # AWS configuration (when osggrapherCloudProvider: "aws")
 osggrapherAwsRegion: ""
 osggrapherAwsProfile: "default"
+
+# Azure configuration (when osggrapherCloudProvider: "azure")
+osggrapherAzureSubscriptionId: ""      # Azure Subscription (mandatory)
+osggrapherAzureResourceGroup: ""       # Resource Group (mandatory)
+osggrapherAzureRegion: ""              # Region (ex: westeurope)
+osggrapherAzureTenantId: ""            # Azure AD Tenant
+osggrapherAzureClientId: ""            # Service Principal ID
+osggrapherAzureSecret: ""              # Service Principal Secret
 
 # === Display Options ===
 # do you want to see default security group

@@ -1,6 +1,6 @@
 # Tests Scripts for Cloud Security Group Grapher
 
-This directory contains test scripts to deploy realistic cloud environments and validate the cloud-securitygroup-grapher role.
+This directory contains test scripts to deploy realistic cloud environments and validate the cloud-securitygroup-grapher role across OpenStack, AWS, and Azure.
 
 ## Test Architecture
 
@@ -122,6 +122,26 @@ ls -la aws-test.*
 
 # 4. Clean up environment
 ansible-playbook tests/cleanup-aws.yml
+```
+
+#### Azure Test
+
+```bash
+# 1. Deploy test environment
+ansible-playbook tests/deploy-azure.yml
+
+# 2. Test the role
+ansible-playbook tests/test-azure-role.yml
+
+# 3. Check generated files
+ls -la azure-test.*
+# azure-test.png  → Visualization graph
+# azure-test.csv  → CSV rules export
+# azure-test.md   → Markdown export
+# azure-test.dot  → Graphviz source
+
+# 4. Clean up environment
+ansible-playbook tests/cleanup-azure.yml
 ```
 
 ### 📊 Expected Results

@@ -1,6 +1,24 @@
 # cloud-securitygroup-grapher
 
-This Ansible role gets information from cloud providers (OpenStack, AWS) and generates a [graphical representation](CloudGrapher.png) of security groups and instances through a dot file rendered by [Graphviz](https://graphviz.gitlab.io/)
+This Ansible role gets information from cloud providers (OpenStack, AWS, Azure) and generates a [graphical representation](CloudGrapher.png) of security groups and instances through a dot file rendered by [Graphviz](https://graphviz.gitlab.io/)
+
+## ⚠️ **ALPHA VERSION - NOT PRODUCTION READY**
+
+**This role is in early development stage (ALPHA) and has NOT been tested in real environments.**
+
+- 🔴 **ALL PROVIDERS**: No serious testing has been conducted yet
+- 🔴 **OpenStack support**: Implemented but untested
+- 🔴 **AWS support**: Implemented but untested  
+- 🔴 **Azure support**: Recently implemented, completely untested
+- ❌ **Production use**: STRONGLY DISCOURAGED - may cause unexpected behavior
+
+**⚠️ USE AT YOUR OWN RISK:**
+- This is an **ALPHA release** for development and testing purposes only
+- **No guarantees** on functionality, stability, or data safety
+- May contain bugs, incomplete features, or breaking changes
+- Test thoroughly in isolated environments before any real-world usage
+- Contributions, bug reports, and testing feedback are highly welcomed
+- See `tests/` directory for theoretical test scenarios (not yet validated)
 
 ## Requirements
 
@@ -9,8 +27,10 @@ The below requirements are needed on the host that executes this module.
 * Ansible >= 2.9
 * [openstack.cloud](https://docs.ansible.com/ansible/latest/collections/openstack/cloud/index.html#plugins-in-openstack-cloud) collection (version >= 2.0.0) - for OpenStack support
 * [amazon.aws](https://docs.ansible.com/ansible/latest/collections/amazon/aws/index.html) collection (version >= 6.0.0) - for AWS support
+* [azure.azcollection](https://docs.ansible.com/ansible/latest/collections/azure/azcollection/index.html) collection (version >= 1.0.0) - for Azure support
 * :warning: For **OpenStack**: [OpenStack-SDK](https://docs.openstack.org/openstacksdk/latest/user/) python library (version >= 1.0.0) needs to be installed
 * :warning: For **AWS**: [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html) and [botocore](https://botocore.amazonaws.com/v1/documentation/api/latest/index.html) python libraries need to be installed
+* :warning: For **Azure**: [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) or Azure SDK for Python needs to be installed
 * :warning: To render (i.e. to draw and obtain a graphic file), [Graphviz](https://graphviz.gitlab.io/) needs to be installed.
 
 ## Role Variables
@@ -19,7 +39,7 @@ The below requirements are needed on the host that executes this module.
 
 |Name|Type|Description|Default|
 |----|----|-----------|-------|
-|`osggrapherCloudProvider`|string|Cloud provider to use: `openstack` or `aws` (**mandatory**)|`openstack`|
+|`osggrapherCloudProvider`|string|Cloud provider to use: `openstack`, `aws`, or `azure` (**mandatory**)|`openstack`|
 
 ### OpenStack Configuration
 
@@ -33,6 +53,17 @@ The below requirements are needed on the host that executes this module.
 |----|----|-----------|-------|
 |`osggrapherAwsRegion`|string|AWS region to query (**mandatory when using AWS**)|`""`|
 |`osggrapherAwsProfile`|string|AWS profile to use (defined in ~/.aws/credentials)|`default`|
+
+### Azure Configuration
+
+|Name|Type|Description|Default|
+|----|----|-----------|-------|
+|`osggrapherAzureSubscriptionId`|string|Azure subscription ID (**mandatory when using Azure**)|`""`|
+|`osggrapherAzureResourceGroup`|string|Azure resource group name (**mandatory when using Azure**)|`""`|
+|`osggrapherAzureRegion`|string|Azure region (e.g., `westeurope`)|`""`|
+|`osggrapherAzureTenantId`|string|Azure AD tenant ID (optional if using default authentication)|`""`|
+|`osggrapherAzureClientId`|string|Azure service principal client ID (optional if using default authentication)|`""`|
+|`osggrapherAzureSecret`|string|Azure service principal secret (optional if using default authentication)|`""`|
 
 ### Display Options
 
@@ -105,11 +136,29 @@ The below requirements are needed on the host that executes this module.
       osggrapherShowInstances: true
 ~~~
 
+### Azure Example
+
+~~~yaml
+---
+- name: Azure Security group grapher
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - role: cloud-securitygroup-grapher
+      osggrapherCloudProvider: azure
+      osggrapherAzureSubscriptionId: "12345678-1234-1234-1234-123456789012"
+      osggrapherAzureResourceGroup: "prod-rg"
+      osggrapherAzureRegion: "westeurope"
+      osggrapherFilter: "prod-"
+      osggrapherShowInstances: true
+~~~
+
 ## Technical Architecture
 
 This role uses an optimized multi-cloud template architecture for better performance and maintainability:
 
-- **Multi-cloud support**: Unified architecture supporting OpenStack and AWS with provider-specific data collection
+- **Multi-cloud support**: Unified architecture supporting OpenStack, AWS, and Azure with provider-specific data collection
 - **Data normalization**: Cloud provider data is normalized to a common format before processing
 - **Unified templates**: Single template system supporting all output formats (DOT/CSV/Markdown) across all providers
 - **Shared macros**: Reusable Jinja2 macros in `templates/macros.j2` for consistent rule processing
@@ -173,7 +222,7 @@ With osggrapherRankdir: LR, left to right, RL, right to left, TB, top to bottom,
 
 #### TB example
 
-![Example](TB.png)
+![Example](doc/TB.png)
 
 ### Author Information
 
