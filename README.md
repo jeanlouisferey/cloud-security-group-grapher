@@ -1,6 +1,6 @@
 # cloud-securitygroup-grapher
 
-This Ansible role gets information from cloud providers (OpenStack, AWS, Azure) and generates a [graphical representation](CloudGrapher.png) of security groups and instances through a dot file rendered by [Graphviz](https://graphviz.gitlab.io/)
+This Ansible role gets information from cloud providers (OpenStack, AWS, Azure) and generates a [graphical representation](doc/CloudGrapher.png) of security groups and instances through a dot file rendered by [Graphviz](https://graphviz.gitlab.io/)
 
 ## ⚠️ **ALPHA VERSION - NOT PRODUCTION READY**
 
