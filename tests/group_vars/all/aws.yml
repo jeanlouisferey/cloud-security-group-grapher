@@ -1,0 +1,24 @@
+---
+# AWS Configuration for testing cloud-securitygroup-grapher role
+# CUSTOMIZE these values for your AWS environment before running tests
+
+# AWS Region
+aws_region: "eu-west-3"
+
+# AWS Profile (from ~/.aws/credentials)
+aws_profile: "default"
+
+# EC2 Key Pair Name (must exist in your AWS account)
+# Create one with: aws ec2 create-key-pair --key-name sgtest-key --query 'KeyMaterial' --output text > ~/.ssh/sgtest-key.pem
+aws_key_name: "sgtest-key"
+
+# EC2 Instance Type (Free Tier eligible)
+aws_instance_type: "t3.micro"
+
+# Amazon Linux 2 AMI ID for eu-west-3
+# Find AMI for your region: https://aws.amazon.com/amazon-linux-2/release-notes/
+aws_ami_id: "ami-0162ba22edf21828a"
+
+# Resource prefix for test environment
+# All created resources will be named: {prefix}-{resource-type}
+aws_prefix: "sgtest"

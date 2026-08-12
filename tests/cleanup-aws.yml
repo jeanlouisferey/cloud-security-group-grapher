@@ -1,79 +1,128 @@
 ---
-# Cleanup script for AWS test environment
+# Détruit toutes les ressources AWS créées par deploy-aws.yml
+#
+# Usage : ansible-playbook playbooks/cleanup-aws.yml
+
 - name: Cleanup AWS test environment
   hosts: localhost
   connection: local
   gather_facts: false
-  
-  vars:
-    # AWS configuration - MUST MATCH deploy-aws.yml
-    aws_region: "eu-west-1"
-    aws_profile: "default"
-    prefix: "sgtest"
-    
+
   tasks:
-    - name: Get test instances info
+    # ── Terminate instances first ────────────────────────────────────
+
+    - name: Find test instances
       amazon.aws.ec2_instance_info:
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
         filters:
-          "tag:Name": "{{ prefix }}-*"
-          instance-state-name: ["running", "stopped", "stopping"]
+          "tag:Name": "{{ aws_prefix }}-*"
+          instance-state-name: ["running", "stopped", "pending"]
       register: test_instances
 
     - name: Terminate test instances
       amazon.aws.ec2_instance:
+        instance_ids: "{{ test_instances.instances | map(attribute='instance_id') | list }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
-        instance_ids: "{{ test_instances.instances | map(attribute='instance_id') | list }}"
         state: absent
         wait: true
         wait_timeout: 300
       when: test_instances.instances | length > 0
       ignore_errors: true
 
-    - name: Get test security groups
-      amazon.aws.ec2_group_info:
+    # ── Delete security groups ───────────────────────────────────────
+
+    - name: Find test security groups
+      amazon.aws.ec2_security_group_info:
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
         filters:
-          group-name: "{{ prefix }}-*"
+          "tag:Name": "{{ aws_prefix }}-*"
       register: test_sgs
 
     - name: Delete test security groups
-      amazon.aws.ec2_group:
+      amazon.aws.ec2_security_group:
+        group_id: "{{ item.group_id }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
-        group_id: "{{ item.group_id }}"
         state: absent
       loop: "{{ test_sgs.security_groups }}"
+      when: test_sgs.security_groups | length > 0
       ignore_errors: true
-      # Note: May need to wait for instances to be fully terminated first
 
-    - name: Remove generated test files
-      file:
+    # ── Delete VPC resources ────────────────────────────────────────
+
+    - name: Find test VPC
+      amazon.aws.ec2_vpc_net_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          "tag:Name": "{{ aws_prefix }}-vpc"
+      register: test_vpcs
+
+    - name: Delete internet gateway
+      amazon.aws.ec2_vpc_igw:
+        vpc_id: "{{ test_vpcs.vpcs[0].vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        state: absent
+      when: test_vpcs.vpcs | length > 0
+      ignore_errors: true
+
+    - name: Delete route table
+      amazon.aws.ec2_vpc_route_table:
+        vpc_id: "{{ test_vpcs.vpcs[0].vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        tags:
+          Name: "{{ aws_prefix }}-rt"
+        lookup: tag
+        state: absent
+      when: test_vpcs.vpcs | length > 0
+      ignore_errors: true
+
+    - name: Delete subnet
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ test_vpcs.vpcs[0].vpc_id }}"
+        cidr: "10.0.1.0/24"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        state: absent
+      when: test_vpcs.vpcs | length > 0
+      ignore_errors: true
+
+    - name: Delete VPC
+      amazon.aws.ec2_vpc_net:
+        vpc_id: "{{ test_vpcs.vpcs[0].vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        state: absent
+      when: test_vpcs.vpcs | length > 0
+      ignore_errors: true
+
+    # ── Remove local output files ────────────────────────────────────
+
+    - name: Remove generated output files
+      ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
-        - "./aws-test.dot"
-        - "./aws-test.png"
-        - "./aws-test.csv"
-        - "./aws-test.md"
+        - "./output/aws-securitygroups.dot"
+        - "./output/aws-securitygroups.png"
+        - "./output/aws-securitygroups.csv"
+        - "./output/aws-securitygroups.md"
       ignore_errors: true
 
     - name: Display cleanup summary
-      debug:
+      ansible.builtin.debug:
         msg: |
-          ========================================
-          AWS Cleanup Completed!
-          ========================================
-          
-          Removed:
-          - All test instances ({{ prefix }}-*)
-          - All test security groups ({{ prefix }}-*-sg)
-          - Generated visualization files
-          
-          Note: Security group deletion may take a few minutes
-          after instance termination. Re-run if needed.
-          
-          Environment cleaned up successfully.
+          ══════════════════════════════════════════
+          AWS Cleanup Complete
+          ══════════════════════════════════════════
+
+          Terminated instances : {{ test_instances.instances | length }}
+          Deleted SGs          : {{ test_sgs.security_groups | length }}
+          Output files removed.
+
+          Note: Security group deletion may take a few minutes after instance termination.

@@ -2,29 +2,44 @@
 
 This directory contains test scripts to deploy realistic cloud environments and validate the cloud-securitygroup-grapher role across OpenStack, AWS, and Azure.
 
+## ✅ **Test Status**
+
+- **AWS**: ✅ **VALIDATED** - Successfully tested with 3-tier architecture + bastion
+- **OpenStack**: 🟡 Untested - Scripts available but not validated
+- **Azure**: 🟡 Untested - Scripts available but not validated
+
 ## Test Architecture
 
-The scripts deploy a **realistic 3-tier architecture**:
+### AWS (Validated)
+
+Deploys a **4-tier architecture with bastion** for secure access:
 
 ```
-Internet  →  [Web Tier]  →  [App Tier]  →  [Database Tier]
-             HTTP/HTTPS      API calls       DB queries
+Internet  →  [Bastion]  →  [Load Balancer]  →  [Web Tier (x2)]  →  [Database Tier]
+             SSH jump       HTTP/HTTPS          App servers           DB server
 ```
 
-### Deployed Components
+#### Deployed Components (AWS)
 
-| Tier | Instance | Security Group | Open Ports |
-|------|----------|----------------|------------|
-| **Web** | `sgtest-web-server` | `sgtest-web-sg` | 22 (SSH), 80 (HTTP), 443 (HTTPS) |
-| **App** | `sgtest-app-server` | `sgtest-app-sg` | 22 (SSH), 8080 (API), 8443 (API secure) |
-| **Database** | `sgtest-db-server` | `sgtest-db-sg` | 22 (SSH), 3306 (MySQL), 5432 (PostgreSQL) |
+| Tier | Instances | Security Group | Ingress Rules |
+|------|-----------|----------------|---------------|
+| **Bastion** | `sgtest-bastion` | `sgtest-bastion-sg` | SSH (22) from Internet |
+| **Load Balancer** | `sgtest-lb` | `sgtest-lb-sg` | HTTP (80), HTTPS (443) from Internet<br>SSH (22) from bastion only |
+| **Web** | `sgtest-web-1`<br>`sgtest-web-2` | `sgtest-web-sg` | HTTP (8080), HTTPS (8443) from LB only<br>SSH (22) from bastion only |
+| **Database** | `sgtest-db` | `sgtest-db-sg` | MySQL (3306), PostgreSQL (5432), Redis (6379) from Web only<br>SSH (22) from bastion only |
 
-### Security Flows
+#### Security Flows (AWS)
 
-- **Internet → Web** : Public HTTP/HTTPS access
-- **Web → App** : API access from web tier only
-- **App → Database** : Database access from app tier only
-- **SSH** : SSH access from internet (for administration)
+- **Internet → Bastion** : SSH access for administration (jump host)
+- **Internet → Load Balancer** : Public HTTP/HTTPS traffic
+- **Load Balancer → Web** : Proxied traffic to application servers
+- **Web → Database** : Database queries from application tier only
+- **Bastion → All** : SSH access through bastion (ProxyJump pattern)
+- **Network Isolation**: VPC with custom subnet, Internet Gateway, and route table
+
+### OpenStack / Azure (Not Yet Tested)
+
+3-tier architecture similar to AWS but without bastion (legacy scripts).
 
 ## Usage
 
@@ -59,25 +74,41 @@ aws_secret_access_key = YOUR_SECRET_KEY
 region = eu-west-1
 ```
 
-### 📝 Customization
+### 📝 Configuration
 
-Before executing, **modify the variables** in the playbooks:
+#### AWS (Recommended - Validated)
 
-#### `deploy-openstack.yml`
+Variables are in `group_vars/all/aws.yml`. Customize before running:
+
 ```yaml
-vars:
-  cloud_name: "testcloud"        # Your cloud name in clouds.yaml
-  key_name: "test-key"           # Your OpenStack SSH key name
-  flavor: "s1-2"                 # Instance flavor (ex: m1.small)
-  image: "Ubuntu 22.04"          # OS image name
-  network: "Ext-Net"             # External network name
+aws_region: "eu-west-3"              # Your AWS region
+aws_profile: "default"               # AWS profile from ~/.aws/credentials
+aws_key_name: "sgtest-key"           # EC2 key pair name (must exist)
+aws_instance_type: "t3.micro"        # Instance type (Free Tier)
+aws_ami_id: "ami-0162ba22edf21828a"  # Amazon Linux 2 AMI for your region
+aws_prefix: "sgtest"                 # Resource naming prefix
 ```
 
-#### `deploy-aws.yml`
+Create EC2 key pair if needed:
+```bash
+aws ec2 create-key-pair --key-name sgtest-key --query 'KeyMaterial' --output text > ~/.ssh/sgtest-key.pem
+chmod 400 ~/.ssh/sgtest-key.pem
+```
+
+#### OpenStack (Legacy - Not Validated)
+
+Modify variables directly in `deploy-openstack.yml`:
 ```yaml
-vars:
-  aws_region: "eu-west-1"        # AWS region
-  aws_profile: "default"         # AWS profile
+cloud_name: "testcloud"        # Your cloud name in clouds.yaml
+key_name: "test-key"           # Your OpenStack SSH key name
+flavor: "s1-2"                 # Instance flavor
+image: "Ubuntu 22.04"          # OS image name
+network: "Ext-Net"             # External network name
+```
+
+#### Azure (Legacy - Not Validated)
+
+Modify variables directly in `deploy-azure.yml`
   key_name: "test-key"           # Your EC2 Key Pair name
   ami_id: "ami-0c02fb55956c7d316" # AMI ID for your region
 ```

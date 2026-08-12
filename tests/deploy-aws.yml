@@ -1,223 +1,310 @@
 ---
-# AWS deployment script for testing cloud-securitygroup-grapher
-# Creates a realistic 3-tier architecture: web -> app -> database
+# Déploie une infrastructure 3-tiers sur AWS pour tester cloud-securitygroup-grapher
+# Architecture : 1 LB → 2 Web Servers → 1 Database
+#
+# Usage : ansible-playbook playbooks/deploy-aws.yml
 
 - name: Deploy AWS test environment
   hosts: localhost
   connection: local
   gather_facts: false
-  
-  vars:
-    # AWS configuration - CUSTOMIZE THESE VALUES
-    aws_region: "eu-west-1"          # AWS region
-    aws_profile: "default"           # AWS profile from ~/.aws/credentials
-    key_name: "test-key"             # Your EC2 key pair name
-    instance_type: "t3.micro"        # Instance type (Free Tier eligible)
-    ami_id: "ami-0c02fb55956c7d316"  # Amazon Linux 2 AMI (update for your region)
-    
-    # Test environment prefix
-    prefix: "sgtest"
-    
+
   tasks:
-    - name: Get default VPC info
-      amazon.aws.ec2_vpc_info:
+    - name: Validate AWS configuration
+      ansible.builtin.assert:
+        that:
+          - aws_region != ""
+          - aws_key_name != ""
+          - aws_ami_id != ""
+        fail_msg: "Remplir aws_region, aws_key_name et aws_ami_id dans group_vars/all/aws.yml"
+
+    # ── VPC & Subnet ───────────────────────────────────────────────
+
+    - name: Create VPC
+      amazon.aws.ec2_vpc_net:
+        name: "{{ aws_prefix }}-vpc"
+        cidr_block: "10.0.0.0/16"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
-        filters:
-          is-default: "true"
-      register: vpc_info
+        tags:
+          Name: "{{ aws_prefix }}-vpc"
+          Environment: "test"
+        state: present
+      register: vpc
 
     - name: Set VPC ID
-      set_fact:
-        vpc_id: "{{ vpc_info.vpcs[0].vpc_id }}"
+      ansible.builtin.set_fact:
+        vpc_id: "{{ vpc.vpc.id }}"
 
-    - name: Create web security group
-      amazon.aws.ec2_group:
-        name: "{{ prefix }}-web-sg"
-        description: "Web server security group - allows HTTP/HTTPS from internet"
+    - name: Create subnet
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ vpc_id }}"
+        cidr: "10.0.1.0/24"
+        az: "{{ aws_region }}a"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        map_public: true
+        tags:
+          Name: "{{ aws_prefix }}-subnet"
+          Environment: "test"
+        state: present
+      register: subnet
+
+    - name: Create internet gateway
+      amazon.aws.ec2_vpc_igw:
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        tags:
+          Name: "{{ aws_prefix }}-igw"
+        state: present
+      register: igw
+
+    - name: Create route table with internet route
+      amazon.aws.ec2_vpc_route_table:
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        subnets:
+          - "{{ subnet.subnet.id }}"
+        routes:
+          - dest: "0.0.0.0/0"
+            gateway_id: "{{ igw.gateway_id }}"
+        tags:
+          Name: "{{ aws_prefix }}-rt"
+        state: present
+
+    # ── Security Groups ──────────────────────────────────────────────
+
+    - name: Create Bastion security group
+      amazon.aws.ec2_security_group:
+        name: "{{ aws_prefix }}-bastion-sg"
+        description: "Bastion - SSH from internet"
         vpc_id: "{{ vpc_id }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
         rules:
           - proto: tcp
-            ports:
-              - 80
+            ports: [22]
+            cidr_ip: "0.0.0.0/0"
+            rule_desc: "SSH from internet"
+        tags:
+          Name: "{{ aws_prefix }}-bastion-sg"
+          Tier: "bastion"
+          Environment: "test"
+        state: present
+      register: bastion_sg
+
+    - name: Create Load Balancer security group
+      amazon.aws.ec2_security_group:
+        name: "{{ aws_prefix }}-lb-sg"
+        description: "Load Balancer - accepts HTTP/HTTPS from internet, SSH from bastion"
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        rules:
+          - proto: tcp
+            ports: [80]
             cidr_ip: "0.0.0.0/0"
             rule_desc: "HTTP from internet"
           - proto: tcp
-            ports:
-              - 443
+            ports: [443]
             cidr_ip: "0.0.0.0/0"
             rule_desc: "HTTPS from internet"
           - proto: tcp
-            ports:
-              - 22
-            cidr_ip: "0.0.0.0/0"
-            rule_desc: "SSH access"
+            ports: [22]
+            group_id: "{{ bastion_sg.group_id }}"
+            rule_desc: "SSH from bastion"
         tags:
-          Name: "{{ prefix }}-web-sg"
+          Name: "{{ aws_prefix }}-lb-sg"
+          Tier: "loadbalancer"
+          Environment: "test"
+        state: present
+      register: lb_sg
+
+    - name: Create Web security group
+      amazon.aws.ec2_security_group:
+        name: "{{ aws_prefix }}-web-sg"
+        description: "Web servers - accepts traffic from LB, SSH from bastion"
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        rules:
+          - proto: tcp
+            ports: [8080]
+            group_id: "{{ lb_sg.group_id }}"
+            rule_desc: "HTTP from load balancer"
+          - proto: tcp
+            ports: [8443]
+            group_id: "{{ lb_sg.group_id }}"
+            rule_desc: "HTTPS from load balancer"
+          - proto: tcp
+            ports: [22]
+            group_id: "{{ bastion_sg.group_id }}"
+            rule_desc: "SSH from bastion"
+        tags:
+          Name: "{{ aws_prefix }}-web-sg"
           Tier: "web"
           Environment: "test"
         state: present
       register: web_sg
 
-    - name: Create app security group
-      amazon.aws.ec2_group:
-        name: "{{ prefix }}-app-sg"
-        description: "Application server security group - allows access from web tier"
+    - name: Create Database security group
+      amazon.aws.ec2_security_group:
+        name: "{{ aws_prefix }}-db-sg"
+        description: "Database - accepts traffic from web tier, SSH from bastion"
         vpc_id: "{{ vpc_id }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
         rules:
           - proto: tcp
-            ports:
-              - 8080
+            ports: [3306]
             group_id: "{{ web_sg.group_id }}"
-            rule_desc: "API access from web tier"
+            rule_desc: "MySQL from web tier"
           - proto: tcp
-            ports:
-              - 8443
+            ports: [5432]
             group_id: "{{ web_sg.group_id }}"
-            rule_desc: "Secure API access from web tier"
+            rule_desc: "PostgreSQL from web tier"
           - proto: tcp
-            ports:
-              - 22
-            cidr_ip: "0.0.0.0/0"
-            rule_desc: "SSH access"
+            ports: [6379]
+            group_id: "{{ web_sg.group_id }}"
+            rule_desc: "Redis from web tier"
+          - proto: tcp
+            ports: [22]
+            group_id: "{{ bastion_sg.group_id }}"
+            rule_desc: "SSH from bastion"
         tags:
-          Name: "{{ prefix }}-app-sg"
-          Tier: "app"
-          Environment: "test"
-        state: present
-      register: app_sg
-
-    - name: Create database security group
-      amazon.aws.ec2_group:
-        name: "{{ prefix }}-db-sg"
-        description: "Database security group - allows access from app tier only"
-        vpc_id: "{{ vpc_id }}"
-        region: "{{ aws_region }}"
-        profile: "{{ aws_profile }}"
-        rules:
-          - proto: tcp
-            ports:
-              - 3306
-            group_id: "{{ app_sg.group_id }}"
-            rule_desc: "MySQL access from app tier"
-          - proto: tcp
-            ports:
-              - 5432
-            group_id: "{{ app_sg.group_id }}"
-            rule_desc: "PostgreSQL access from app tier"
-          - proto: tcp
-            ports:
-              - 6379
-            group_id: "{{ app_sg.group_id }}"
-            rule_desc: "Redis access from app tier"
-          - proto: tcp
-            ports:
-              - 22
-            cidr_ip: "0.0.0.0/0"
-            rule_desc: "SSH access"
-        tags:
-          Name: "{{ prefix }}-db-sg"
+          Name: "{{ aws_prefix }}-db-sg"
           Tier: "database"
           Environment: "test"
         state: present
       register: db_sg
 
-    - name: Get subnet info for instance placement
-      amazon.aws.ec2_subnet_info:
+    # ── Instances ────────────────────────────────────────────────────
+
+    - name: Launch Bastion instance
+      amazon.aws.ec2_instance:
+        name: "{{ aws_prefix }}-bastion"
+        instance_type: "{{ aws_instance_type }}"
+        image_id: "{{ aws_ami_id }}"
+        key_name: "{{ aws_key_name }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
+        security_groups:
+          - "{{ bastion_sg.group_id }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
-        filters:
-          vpc-id: "{{ vpc_id }}"
-          default-for-az: "true"
-      register: subnet_info
+        tags:
+          Name: "{{ aws_prefix }}-bastion"
+          Role: "bastion"
+          Environment: "test"
+        state: present
+        wait: true
+        wait_timeout: 300
+      register: bastion_instance
 
-    - name: Launch web server instance
+    - name: Launch Load Balancer instance
       amazon.aws.ec2_instance:
-        name: "{{ prefix }}-web-server"
-        instance_type: "{{ instance_type }}"
-        image_id: "{{ ami_id }}"
-        key_name: "{{ key_name }}"
-        vpc_subnet_id: "{{ subnet_info.subnets[0].subnet_id }}"
+        name: "{{ aws_prefix }}-lb"
+        instance_type: "{{ aws_instance_type }}"
+        image_id: "{{ aws_ami_id }}"
+        key_name: "{{ aws_key_name }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
+        security_groups:
+          - "{{ lb_sg.group_id }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        tags:
+          Name: "{{ aws_prefix }}-lb"
+          Role: "loadbalancer"
+          Environment: "test"
+        state: present
+        wait: true
+        wait_timeout: 300
+      register: lb_instance
+
+    - name: Launch Web Server 1
+      amazon.aws.ec2_instance:
+        name: "{{ aws_prefix }}-web-1"
+        instance_type: "{{ aws_instance_type }}"
+        image_id: "{{ aws_ami_id }}"
+        key_name: "{{ aws_key_name }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
         security_groups:
           - "{{ web_sg.group_id }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
         tags:
-          Name: "{{ prefix }}-web-server"
+          Name: "{{ aws_prefix }}-web-1"
           Role: "webserver"
-          Tier: "frontend"
           Environment: "test"
         state: present
         wait: true
         wait_timeout: 300
-      register: web_instance
+      register: web1_instance
 
-    - name: Launch app server instance
+    - name: Launch Web Server 2
       amazon.aws.ec2_instance:
-        name: "{{ prefix }}-app-server"
-        instance_type: "{{ instance_type }}"
-        image_id: "{{ ami_id }}"
-        key_name: "{{ key_name }}"
-        vpc_subnet_id: "{{ subnet_info.subnets[0].subnet_id }}"
+        name: "{{ aws_prefix }}-web-2"
+        instance_type: "{{ aws_instance_type }}"
+        image_id: "{{ aws_ami_id }}"
+        key_name: "{{ aws_key_name }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
         security_groups:
-          - "{{ app_sg.group_id }}"
+          - "{{ web_sg.group_id }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
         tags:
-          Name: "{{ prefix }}-app-server"
-          Role: "appserver"
-          Tier: "backend"
+          Name: "{{ aws_prefix }}-web-2"
+          Role: "webserver"
           Environment: "test"
         state: present
         wait: true
         wait_timeout: 300
-      register: app_instance
+      register: web2_instance
 
-    - name: Launch database server instance
+    - name: Launch Database instance
       amazon.aws.ec2_instance:
-        name: "{{ prefix }}-db-server"
-        instance_type: "{{ instance_type }}"
-        image_id: "{{ ami_id }}"
-        key_name: "{{ key_name }}"
-        vpc_subnet_id: "{{ subnet_info.subnets[0].subnet_id }}"
+        name: "{{ aws_prefix }}-db"
+        instance_type: "{{ aws_instance_type }}"
+        image_id: "{{ aws_ami_id }}"
+        key_name: "{{ aws_key_name }}"
+        vpc_subnet_id: "{{ subnet.subnet.id }}"
         security_groups:
           - "{{ db_sg.group_id }}"
         region: "{{ aws_region }}"
         profile: "{{ aws_profile }}"
         tags:
-          Name: "{{ prefix }}-db-server"
+          Name: "{{ aws_prefix }}-db"
           Role: "database"
-          Tier: "data"
           Environment: "test"
         state: present
         wait: true
         wait_timeout: 300
       register: db_instance
 
+    # ── Summary ──────────────────────────────────────────────────────
+
     - name: Display deployment summary
-      debug:
+      ansible.builtin.debug:
         msg: |
-          ========================================
-          AWS Test Environment Deployed!
-          ========================================
-          
-          Security Groups Created:
-          - {{ prefix }}-web-sg ({{ web_sg.group_id }}) - HTTP/HTTPS from internet
-          - {{ prefix }}-app-sg ({{ app_sg.group_id }}) - API access from web tier  
-          - {{ prefix }}-db-sg ({{ db_sg.group_id }}) - DB access from app tier
-          
-          Instances Created:
-          - {{ prefix }}-web-server ({{ web_instance.instances[0].instance_id }}) - web tier
-          - {{ prefix }}-app-server ({{ app_instance.instances[0].instance_id }}) - app tier
-          - {{ prefix }}-db-server ({{ db_instance.instances[0].instance_id }}) - database tier
-          
-          VPC: {{ vpc_id }}
-          Region: {{ aws_region }}
-          
-          Next steps:
-          1. Test the role: ansible-playbook tests/test-aws-role.yml
-          2. Cleanup: ansible-playbook tests/cleanup-aws.yml
+          ══════════════════════════════════════════
+          AWS Test Environment Deployed
+          ══════════════════════════════════════════
+
+          Security Groups:
+            {{ aws_prefix }}-bastion-sg ({{ bastion_sg.group_id }}) - SSH from internet
+            {{ aws_prefix }}-lb-sg      ({{ lb_sg.group_id }})      - HTTP/HTTPS from internet, SSH from bastion
+            {{ aws_prefix }}-web-sg     ({{ web_sg.group_id }})     - from LB, SSH from bastion
+            {{ aws_prefix }}-db-sg      ({{ db_sg.group_id }})      - from web, SSH from bastion
+
+          Instances:
+            {{ aws_prefix }}-bastion ({{ bastion_instance.instances[0].instance_id }})
+            {{ aws_prefix }}-lb      ({{ lb_instance.instances[0].instance_id }})
+            {{ aws_prefix }}-web-1   ({{ web1_instance.instances[0].instance_id }})
+            {{ aws_prefix }}-web-2   ({{ web2_instance.instances[0].instance_id }})
+            {{ aws_prefix }}-db      ({{ db_instance.instances[0].instance_id }})
+
+          VPC: {{ vpc_id }} | Region: {{ aws_region }}
+
+          Next:
+            ansible-playbook playbooks/test-aws.yml

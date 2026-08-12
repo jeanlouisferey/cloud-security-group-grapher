@@ -1,18 +1,23 @@
 ---
-# Test playbook for cloud-securitygroup-grapher role with AWS
-- name: Test cloud-securitygroup-grapher role with AWS
+# Exécute le rôle cloud-securitygroup-grapher sur l'infra AWS déployée
+# Génère les diagrammes de security groups
+#
+# Prérequis : avoir exécuté deploy-aws.yml
+# Usage : ansible-playbook playbooks/test-aws.yml
+
+- name: Test cloud-securitygroup-grapher on AWS
   hosts: localhost
   connection: local
   gather_facts: false
-  
-  vars:
-    # AWS configuration - CUSTOMIZE THESE VALUES
-    aws_region: "eu-west-1"    # AWS region
-    aws_profile: "default"     # AWS profile
-    
+
   tasks:
-    - name: Generate security groups visualization (AWS)
-      include_role:
+    - name: Ensure output directory exists
+      ansible.builtin.file:
+        path: "/tmp/cloud-grapher-output"
+        state: directory
+
+    - name: Generate security groups visualization
+      ansible.builtin.include_role:
         name: cloud-securitygroup-grapher
       vars:
         osggrapherCloudProvider: aws
@@ -20,30 +25,48 @@
         osggrapherAwsProfile: "{{ aws_profile }}"
         osggrapherShowInstances: true
         osggrapherShowDefault: false
-        osggrapherFilter: "sgtest"
+        osggrapherFilter: "{{ aws_prefix }}"
         osggrapherRenderCsvFile: true
         osggrapherRenderMdFile: true
-        osggrapherDotFileToRender: "./aws-test.dot"
-        osggrapherFileToRender: "./aws-test.png"
-        osggrapherCsvFileToRender: "./aws-test.csv"
-        osggrapherMdFileToRender: "./aws-test.md"
+        osggrapherRankdir: "LR"
+        osggrapherDotFileToRender: "/tmp/cloud-grapher-output/aws-securitygroups.dot"
+        osggrapherFileToRender: "/tmp/cloud-grapher-output/aws-securitygroups.png"
+        osggrapherCsvFileToRender: "/tmp/cloud-grapher-output/aws-securitygroups.csv"
+        osggrapherMdFileToRender: "/tmp/cloud-grapher-output/aws-securitygroups.md"
+
+    - name: Verify generated files
+      ansible.builtin.stat:
+        path: "/tmp/cloud-grapher-output/{{ item }}"
+      register: file_check
+      loop:
+        - "aws-securitygroups.dot"
+        - "aws-securitygroups.png"
+        - "aws-securitygroups.csv"
+        - "aws-securitygroups.md"
+
+    - name: Assert all files were generated
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.size > 0
+        fail_msg: "File {{ item.item }} was not generated or is empty"
+      loop: "{{ file_check.results }}"
 
     - name: Display test results
-      debug:
+      ansible.builtin.debug:
         msg: |
-          ========================================
-          AWS Test Completed!
-          ========================================
-          
+          ══════════════════════════════════════════
+          AWS Test - SUCCESS
+          ══════════════════════════════════════════
+
           Generated files:
-          - aws-test.dot (Graphviz source)
-          - aws-test.png (Graphic visualization)
-          - aws-test.csv (CSV export)
-          - aws-test.md (Markdown table)
-          
-          Expected visualization:
-          - 3 Security Groups: sgtest-web-sg, sgtest-app-sg, sgtest-db-sg
-          - 3 Instances: sgtest-web-server, sgtest-app-server, sgtest-db-server
-          - Security flows: Internet -> Web -> App -> Database
-          
-          Next: Check the generated PNG file!
+          {% for result in file_check.results %}
+            {{ result.item }} ({{ result.stat.size }} bytes)
+          {% endfor %}
+
+          Expected graph content:
+            3 Security Groups : {{ aws_prefix }}-lb-sg, {{ aws_prefix }}-web-sg, {{ aws_prefix }}-db-sg
+            4 Instances        : {{ aws_prefix }}-lb, {{ aws_prefix }}-web-1, {{ aws_prefix }}-web-2, {{ aws_prefix }}-db
+            Security flows     : Internet → LB → Web → DB
+
+          Open output/aws-securitygroups.png to view the diagram.
