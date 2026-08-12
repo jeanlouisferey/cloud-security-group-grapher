@@ -1,27 +1,23 @@
 {# Shared Jinja2 macros for security groups generation #}
 
 {# Macro to process a security rule (normalized multi-cloud) #}
-{% macro format_rule(rule) %}
-    {# Protocol processing #}
-    {% if rule.protocol %}
-        {% set protocol = rule.protocol %}
-    {% else %}
-        {% set protocol = "any" %}
-    {% endif %}
-    
-    {# Port processing - normalized structure #}
-    {% if rule.port_min and rule.port_max %}
-        {% if rule.port_min != rule.port_max %}
-            {% set port_range = rule.port_min|string + "-" + rule.port_max|string %}
-        {% else %}
-            {% set port_range = rule.port_min %}
-        {% endif %}
-    {% else %}
-        {% set port_range = "any" %}
-    {% endif %}
-    
-    {{ caller(rule, protocol, port_range) }}
-{% endmacro %}
+{%- macro format_rule(rule) -%}
+    {%- if rule.protocol -%}
+        {%- set protocol = rule.protocol -%}
+    {%- else -%}
+        {%- set protocol = "any" -%}
+    {%- endif -%}
+    {%- if rule.port_min and rule.port_max -%}
+        {%- if rule.port_min != rule.port_max -%}
+            {%- set port_range = rule.port_min|string + "-" + rule.port_max|string -%}
+        {%- else -%}
+            {%- set port_range = rule.port_min -%}
+        {%- endif -%}
+    {%- else -%}
+        {%- set port_range = "any" -%}
+    {%- endif -%}
+{{- caller(rule, protocol, port_range) -}}
+{%- endmacro %}
 
 {# Macro to safely resolve the remote partner (normalized structure) #}
 {% macro get_remote_partner(rule, sg_lookup) -%}

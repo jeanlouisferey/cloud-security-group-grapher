@@ -1,8 +1,7 @@
-{# Unified multi-cloud template for security groups generation in all formats #}
-{% from 'macros.j2' import format_rule, get_remote_partner, should_show_sg, get_interface_display_name %}
+{%- from 'macros.j2' import format_rule, get_remote_partner, should_show_sg, get_interface_display_name -%}
 
 {# DOT format for Graphviz #}
-{% if output_format == 'dot' %}
+{%- if output_format == 'dot' %}
 digraph G {
   graph [fontname = "helvetica"];
   node [fontname = "helvetica"];
@@ -52,13 +51,13 @@ digraph G {
 {% for sg in filtered_sgs %}
 {%   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
 {%     for rule in sg.rules %}
-{%       call format_rule(rule) %}
-{%         if rule.direction == "egress" %}
-{%           if osggrapherShowEgressAnyAnyRules or (rule.remote_ip or rule.remote_sg_id) %}
-  "{{ get_remote_partner(rule, sg_lookup) }}" -> "{{ sg.name }}" [arrowhead=inv,color=red,label="OUT: {{ rule.ethertype }} {{ protocol }} {{ port_range }}"];
+{%       call(r, protocol, port_range) format_rule(rule) %}
+{%         if r.direction == "egress" %}
+{%           if osggrapherShowEgressAnyAnyRules or (r.remote_ip or r.remote_sg_id) %}
+  "{{ get_remote_partner(r, sg_lookup) }}" -> "{{ sg.name }}" [arrowhead=inv,color=red,label="OUT: {{ r.ethertype }} {{ protocol }} {{ port_range }}"];
 {%           endif %}
 {%         else %}
-  "{{ get_remote_partner(rule, sg_lookup) }}" -> "{{ sg.name }}" [arrowhead=normal,color=blue,label="IN: {{ rule.ethertype }} {{ protocol }} {{ port_range }}"];
+  "{{ get_remote_partner(r, sg_lookup) }}" -> "{{ sg.name }}" [arrowhead=normal,color=blue,label="IN: {{ r.ethertype }} {{ protocol }} {{ port_range }}"];
 {%         endif %}
 {%       endcall %}
 {%     endfor %}
@@ -67,30 +66,30 @@ digraph G {
 }
 
 {# Format CSV #}
-{% elif output_format == 'csv' %}
+{%- elif output_format == 'csv' %}
 "Security group";"Direction";"IP type";"Protocol";"Port";"Remote partner";"Provider"
 {% for sg in filtered_sgs | sort(attribute='name') %}
-{%   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
-{%     for rule in sg.rules %}
-{%       call format_rule(rule) %}
-"{{ sg.name }}";"{{ rule.direction}}";"{{ rule.ethertype }}";"{{ protocol }}";"{{ port_range }}";"{{ get_remote_partner(rule, sg_lookup) }}";"{{ cloud_provider }}"
+{%-   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
+{%-     for rule in sg.rules %}
+{%-       call(r, protocol, port_range) format_rule(rule) %}
+"{{ sg.name }}";"{{ r.direction}}";"{{ r.ethertype }}";"{{ protocol }}";"{{ port_range }}";"{{ get_remote_partner(r, sg_lookup) }}";"{{ cloud_provider }}"
 {%       endcall %}
-{%     endfor %}
-{%   endif %}
-{% endfor %}
+{%-     endfor %}
+{%-   endif %}
+{%- endfor %}
 
 {# Format Markdown #}
-{% elif output_format == 'markdown' %}
+{%- elif output_format == 'markdown' %}
 | Security group | Direction | IP type | Protocol | Port | Remote partner | Provider |
 | -------------- | --------- | ------- | -------- | ---- | -------------- | -------- |
 {% for sg in filtered_sgs | sort(attribute='name') %}
-{%   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
-{%     for rule in sg.rules %}
-{%       call format_rule(rule) %}
-| {{ sg.name }} | {{ rule.direction}} | {{ rule.ethertype }} | {{ protocol }} | {{ port_range }} | {{ get_remote_partner(rule, sg_lookup) }} | {{ cloud_provider }} |
+{%-   if should_show_sg(sg, sg_filter, osggrapherShowDefault) %}
+{%-     for rule in sg.rules %}
+{%-       call(r, protocol, port_range) format_rule(rule) %}
+| {{ sg.name }} | {{ r.direction}} | {{ r.ethertype }} | {{ protocol }} | {{ port_range }} | {{ get_remote_partner(r, sg_lookup) }} | {{ cloud_provider }} |
 {%       endcall %}
-{%     endfor %}
-{%   endif %}
-{% endfor %}
+{%-     endfor %}
+{%-   endif %}
+{%- endfor %}
 
 {% endif %}

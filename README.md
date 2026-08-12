@@ -2,23 +2,25 @@
 
 This Ansible role gets information from cloud providers (OpenStack, AWS, Azure) and generates a [graphical representation](doc/CloudGrapher.png) of security groups and instances through a dot file rendered by [Graphviz](https://graphviz.gitlab.io/)
 
-## ⚠️ **ALPHA VERSION - NOT PRODUCTION READY**
+## ⚠️ **BETA VERSION - TESTING IN PROGRESS**
 
-**This role is in early development stage (ALPHA) and has NOT been tested in real environments.**
+**This role is in beta development stage and is being actively tested.**
 
-- 🔴 **ALL PROVIDERS**: No serious testing has been conducted yet
-- 🔴 **OpenStack support**: Implemented but untested
-- 🔴 **AWS support**: Implemented but untested  
-- 🔴 **Azure support**: Recently implemented, completely untested
-- ❌ **Production use**: STRONGLY DISCOURAGED - may cause unexpected behavior
+- ✅ **AWS support**: **VALIDATED** - Tested successfully on AWS with 3-tier architecture (VPC, Security Groups, EC2 instances)
+  - Generates accurate Graphviz diagrams from AWS security groups
+  - CSV and Markdown exports working correctly
+  - Handles security group references and network isolation patterns
+- 🟡 **OpenStack support**: Implemented but not yet tested in real environments
+- 🟡 **Azure support**: Implemented but not yet tested in real environments
+- ⚠️ **Production use**: Use with caution - test thoroughly in isolated environments first
 
-**⚠️ USE AT YOUR OWN RISK:**
-- This is an **ALPHA release** for development and testing purposes only
-- **No guarantees** on functionality, stability, or data safety
-- May contain bugs, incomplete features, or breaking changes
-- Test thoroughly in isolated environments before any real-world usage
+**⚠️ BETA STATUS:**
+- AWS provider is **functional and tested** - ready for staging/testing environments
+- OpenStack and Azure providers are untested - contributions and testing feedback welcomed
+- This is a **BETA release** - minor bugs or edge cases may still exist
+- Test thoroughly in non-production environments before production use
 - Contributions, bug reports, and testing feedback are highly welcomed
-- See `tests/` directory for theoretical test scenarios (not yet validated)
+- See `tests/` directory for AWS test scenarios (validated)
 
 ## Requirements
 

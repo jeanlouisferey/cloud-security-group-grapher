@@ -12,6 +12,7 @@ class FilterModule(object):
             'normalize_aws_sg': self.normalize_aws_sg,
             'normalize_openstack_instance': self.normalize_openstack_instance,
             'normalize_aws_instance': self.normalize_aws_instance,
+            'normalize_aws_interface': self.normalize_aws_interface,
             'azure_nsg_normalizer': self.azure_nsg_normalizer,
             'azure_vm_normalizer': self.azure_vm_normalizer,
             'azure_nic_normalizer': self.azure_nic_normalizer
@@ -44,65 +45,65 @@ class FilterModule(object):
     def normalize_aws_sg(self, aws_sg):
         """Normalize AWS security group to unified format"""
         normalized_rules = []
-        
+
         # Process ingress rules
-        for rule in aws_sg.get('IpPermissions', []):
-            for ip_range in rule.get('IpRanges', []):
+        for rule in aws_sg.get('ip_permissions') or aws_sg.get('IpPermissions') or []:
+            for ip_range in rule.get('ip_ranges') or rule.get('IpRanges') or []:
                 normalized_rule = {
                     'direction': 'ingress',
-                    'protocol': rule.get('IpProtocol', 'any'),
-                    'port_min': rule.get('FromPort'),
-                    'port_max': rule.get('ToPort'),
-                    'remote_ip': ip_range.get('CidrIp'),
+                    'protocol': rule.get('ip_protocol') or rule.get('IpProtocol', 'any'),
+                    'port_min': rule.get('from_port') or rule.get('FromPort'),
+                    'port_max': rule.get('to_port') or rule.get('ToPort'),
+                    'remote_ip': ip_range.get('cidr_ip') or ip_range.get('CidrIp'),
                     'remote_sg_id': None,
                     'ethertype': 'IPv4'
                 }
                 normalized_rules.append(normalized_rule)
-            
+
             # Handle security group references
-            for sg_ref in rule.get('UserIdGroupPairs', []):
+            for sg_ref in rule.get('user_id_group_pairs') or rule.get('UserIdGroupPairs') or []:
                 normalized_rule = {
                     'direction': 'ingress',
-                    'protocol': rule.get('IpProtocol', 'any'),
-                    'port_min': rule.get('FromPort'),
-                    'port_max': rule.get('ToPort'),
+                    'protocol': rule.get('ip_protocol') or rule.get('IpProtocol', 'any'),
+                    'port_min': rule.get('from_port') or rule.get('FromPort'),
+                    'port_max': rule.get('to_port') or rule.get('ToPort'),
                     'remote_ip': None,
-                    'remote_sg_id': sg_ref.get('GroupId'),
+                    'remote_sg_id': sg_ref.get('group_id') or sg_ref.get('GroupId'),
                     'ethertype': 'IPv4'
                 }
                 normalized_rules.append(normalized_rule)
         
         # Process egress rules
-        for rule in aws_sg.get('IpPermissionsEgress', []):
-            for ip_range in rule.get('IpRanges', []):
+        for rule in aws_sg.get('ip_permissions_egress') or aws_sg.get('IpPermissionsEgress') or []:
+            for ip_range in rule.get('ip_ranges') or rule.get('IpRanges') or []:
                 normalized_rule = {
                     'direction': 'egress',
-                    'protocol': rule.get('IpProtocol', 'any'),
-                    'port_min': rule.get('FromPort'),
-                    'port_max': rule.get('ToPort'),
-                    'remote_ip': ip_range.get('CidrIp'),
+                    'protocol': rule.get('ip_protocol') or rule.get('IpProtocol', 'any'),
+                    'port_min': rule.get('from_port') or rule.get('FromPort'),
+                    'port_max': rule.get('to_port') or rule.get('ToPort'),
+                    'remote_ip': ip_range.get('cidr_ip') or ip_range.get('CidrIp'),
                     'remote_sg_id': None,
                     'ethertype': 'IPv4'
                 }
                 normalized_rules.append(normalized_rule)
-            
+
             # Handle security group references
-            for sg_ref in rule.get('UserIdGroupPairs', []):
+            for sg_ref in rule.get('user_id_group_pairs') or rule.get('UserIdGroupPairs') or []:
                 normalized_rule = {
                     'direction': 'egress',
-                    'protocol': rule.get('IpProtocol', 'any'),
-                    'port_min': rule.get('FromPort'),
-                    'port_max': rule.get('ToPort'),
+                    'protocol': rule.get('ip_protocol') or rule.get('IpProtocol', 'any'),
+                    'port_min': rule.get('from_port') or rule.get('FromPort'),
+                    'port_max': rule.get('to_port') or rule.get('ToPort'),
                     'remote_ip': None,
-                    'remote_sg_id': sg_ref.get('GroupId'),
+                    'remote_sg_id': sg_ref.get('group_id') or sg_ref.get('GroupId'),
                     'ethertype': 'IPv4'
                 }
                 normalized_rules.append(normalized_rule)
         
         return {
-            'id': aws_sg.get('GroupId'),
-            'name': aws_sg.get('GroupName'),
-            'description': aws_sg.get('Description', ''),
+            'id': aws_sg.get('group_id') or aws_sg.get('GroupId'),
+            'name': aws_sg.get('group_name') or aws_sg.get('GroupName'),
+            'description': aws_sg.get('description') or aws_sg.get('Description', ''),
             'rules': normalized_rules,
             'provider': 'aws'
         }
@@ -119,16 +120,64 @@ class FilterModule(object):
     def normalize_aws_instance(self, aws_instance):
         """Normalize AWS instance to unified format"""
         # Get Name from tags
-        instance_name = aws_instance.get('InstanceId')
-        for tag in aws_instance.get('Tags', []):
-            if tag.get('Key') == 'Name':
-                instance_name = tag.get('Value')
-                break
-        
+        instance_id = aws_instance.get('instance_id') or aws_instance.get('InstanceId')
+        instance_name = instance_id
+
+        # Tags can be dict or list depending on context
+        tags = aws_instance.get('tags') or aws_instance.get('Tags', [])
+        if isinstance(tags, dict):
+            # tags is a dict like {'Name': 'value'}
+            instance_name = tags.get('Name', instance_name)
+        elif isinstance(tags, list):
+            # tags is a list of dicts like [{'Key': 'Name', 'Value': 'value'}]
+            for tag in tags:
+                if isinstance(tag, dict):
+                    key = tag.get('key') or tag.get('Key')
+                    value = tag.get('value') or tag.get('Value')
+                    if key == 'Name':
+                        instance_name = value
+                        break
+
+        security_groups = aws_instance.get('security_groups') or aws_instance.get('SecurityGroups', [])
+        sg_ids = []
+        for sg in security_groups:
+            if isinstance(sg, dict):
+                sg_id = sg.get('group_id') or sg.get('GroupId')
+                if sg_id:
+                    sg_ids.append(sg_id)
+            elif isinstance(sg, str):
+                # Sometimes security_groups is just a list of IDs
+                sg_ids.append(sg)
+
         return {
-            'id': aws_instance.get('InstanceId'),
+            'id': instance_id,
             'name': instance_name,
-            'security_groups': [sg.get('GroupId') for sg in aws_instance.get('SecurityGroups', [])],
+            'security_groups': sg_ids,
+            'provider': 'aws'
+        }
+
+    def normalize_aws_interface(self, aws_interface):
+        """Normalize AWS network interface to unified format"""
+        interface_id = aws_interface.get('network_interface_id') or aws_interface.get('NetworkInterfaceId')
+
+        # Get description or use ID as name
+        interface_name = aws_interface.get('description') or aws_interface.get('Description') or interface_id
+
+        # Get security groups
+        groups = aws_interface.get('groups') or aws_interface.get('Groups', [])
+        sg_ids = []
+        for sg in groups:
+            if isinstance(sg, dict):
+                sg_id = sg.get('group_id') or sg.get('GroupId')
+                if sg_id:
+                    sg_ids.append(sg_id)
+            elif isinstance(sg, str):
+                sg_ids.append(sg)
+
+        return {
+            'id': interface_id,
+            'name': interface_name,
+            'security_groups': sg_ids,
             'provider': 'aws'
         }
 
